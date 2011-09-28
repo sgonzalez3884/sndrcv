@@ -9,11 +9,18 @@
 use strict;
 use warnings;
 
+use constant {
+        PROG    => 'sndrcv',
+        VER     => 20110427
+};
+
 use Net::SFTP;
 use Net::FTP;
 use WWW::Curl::Easy;
 use Crypt::GPG;
 
+use Mail::Sendmail;
+use Email::Valid;
 use File::Copy;
 use File::Path;
 use File::Basename;
@@ -110,6 +117,7 @@ sub validate_config($) {
 			["AuthData", ""],
 			["Verbosity", P_INFO],
 			["LogFile", ""],
+			["EmailList", ""],
 			["Active", "0"]) {
 
 			if(!defined($config->{$conn}->{$fldval->[0]}) || $config->{$conn}->{$fldval->[0]} eq "") {
@@ -135,11 +143,27 @@ sub validate_config($) {
 			$config->{$conn}->{ConnType} ne "sftp") {
 			myprint(P_ERROR, "AuthType '$config->{$conn}->{AuthType}' specified for non sftp Connection $conn\n") and die;
 		}
+
 		if(!($config->{$conn}->{Verbosity} =~ /^(-1)|([1234567])$/)) {
-			myprint(P_ERROR, "Unknown Verbosity flag '$config->{$conn}->{Verbosity}' specified Connection $conn\n") and die;
+			myprint(P_ERROR, "Unknown Verbosity flag '$config->{$conn}->{Verbosity}' specified in Connection $conn\n") and die;
 		}
+
+		my($emailok) = 1;
+		my($emailcount) = 0;
+		foreach my $email (split(/,/, $config->{$conn}->{EmailList})) {
+			if(not Email::Valid->address($email)) {
+				myprint(P_ERROR, "Invalid E-Mail '$email' specified in Connection $conn\n");
+				$emailok = 0;
+			}
+			$emailcount++;
+		}
+		die if($emailok == 0);
+		if($emailcount == 1) {
+			myprint(P_ERROR, "Either 0 or at least 2 E-Mails must be specified for EmailList in Connection $conn\n") and die;
+		}
+
 		if(!($config->{$conn}->{Active} =~ /^[01]$/)) {
-			myprint(P_ERROR, "Unknown Active flag '$config->{$conn}->{Active}' specified Connection $conn\n") and die;
+			myprint(P_ERROR, "Unknown Active flag '$config->{$conn}->{Active}' specified in Connection $conn\n") and die;
 		}
 
 		if(defined($config->{$conn}->{Download})) {
@@ -162,6 +186,7 @@ sub validate_config($) {
 					["TransferType","BINARY"],
 					["MakeList", "0"],
 					["ListName", ""],
+					["EmailNotify", "0"],
 					["Delete", "1"],
 					["Active", "0"],
 					["Debug", "0"]) {
@@ -185,6 +210,12 @@ sub validate_config($) {
 				}
 				if(!($config->{$conn}->{Download}->{$prf}->{MakeList} =~ /^[01]$/)) {
 					myprint(P_ERROR, "Unknown MakeList flag '$config->{$conn}->{Download}->{$prf}->{MakeList}' in Download profile $prf, Connection $conn\n") and die;
+				}
+				if(!($config->{$conn}->{Download}->{$prf}->{EmailNotify} =~ /^[01]$/)) {
+					myprint(P_ERROR, "Unknown EmailNotify flag '$config->{$conn}->{Download}->{$prf}->{EmailNotify}' in Download profile $prf, Connection $conn\n") and die;
+				}
+				if($config->{$conn}->{EmailList} eq "" and $config->{$conn}->{Download}->{$prf}->{EmailNotify} == 1) {
+					myprint(P_ERROR, "EmailNotify flag set with no EmailList in Download profile $prf, Connection $conn\n") and die;
 				}
 				if(!($config->{$conn}->{Download}->{$prf}->{Debug} =~ /^[01]$/)) {
 					myprint(P_ERROR, "Unknown Debug flag '$config->{$conn}->{Download}->{$prf}->{Debug}' in Download profile $prf, Connection $conn\n") and die;
@@ -214,6 +245,7 @@ sub validate_config($) {
 					["CryptType", "None"],
 					["CryptData", ""],
 					["TransferType","BINARY"],
+					["EmailNotify", "0"],
 					["Active", "0"],
 					["Debug", "0"]) {
 
@@ -237,6 +269,12 @@ sub validate_config($) {
 				}
 				if((grep $config->{$conn}->{Upload}->{$prf}->{TransferType},("BINARY","ASCII")) == 0) {
 					myprint(P_ERROR, "Unknown TransferType flag '$config->{$conn}->{Upload}->{$prf}->{Transfertype}' in Upload profile $prf, Connection $conn\n") and die;
+				}
+				if(!($config->{$conn}->{Upload}->{$prf}->{EmailNotify} =~ /^[01]$/)) {
+					myprint(P_ERROR, "Unknown EmailNotify flag '$config->{$conn}->{Upload}->{$prf}->{EmailNotify}' in Upload profile $prf, Connection $conn\n") and die;
+				}
+				if($config->{$conn}->{EmailList} eq "" and $config->{$conn}->{Upload}->{$prf}->{EmailNotify} == 1) {
+					myprint(P_ERROR, "EmailNotify flag set with no EmailList in Upload profile $prf, Connection $conn\n") and die;
 				}
 				if(!($config->{$conn}->{Upload}->{$prf}->{Debug} =~ /^[01]$/)) {
 					myprint(P_ERROR, "Unknown Debug flag '$config->{$conn}->{Upload}->{$prf}->{Debug}' in Upload profile $prf, Connection $conn\n") and die;
@@ -343,14 +381,16 @@ sub var_replace($$) {
 # input parms		\%conn_prf	Connection Profile configuration values
 # 			$conn		Connection Object
 # 			\@date		Current date
+# 			\%email_data	Hash of Email Notification Data
 #
 # returns		0 on success
 # 			1 on general failure
 
-sub download_loop($$$) {
+sub download_loop($$$$) {
 	my($conn_prf) = shift;
 	my($conn) = shift;
 	my($date) = shift;
+	my($email_data) = shift;
 
 	foreach my $key (keys %{$conn_prf->{Download}}) {
 		my($dir) = $conn_prf->{Download}->{$key};
@@ -386,11 +426,14 @@ sub download_loop($$$) {
 
 				if($dir->{Debug} eq "0") {
 
+					# Swap file & file2 data
 					if($file2 ne "") {
 						my($file3) = $file;
 						$file = $file2;
 						$file2 = $file3;
 					}
+					# file = Decypted file if encrypted, otherwise downloaded file
+					# file2 = Downloaded file if encrypted
 
 					myprint(P_INFO, "Copying file '$file' to '$dir->{LocalDir}'...\n");
 					copy($dir->{TempDir} . '/' . $file, $dir->{LocalDir} . '/') 
@@ -424,6 +467,12 @@ sub download_loop($$$) {
 						rm_wrap($conn_prf, $conn, $file, $dir->{RemoteDir});
 					}
 				
+				}
+
+				if($file2 ne "") {
+					push(@{ $email_data->{Message} }, ['D',$dir->{RemoteDir},$file2]);
+				} else {
+					push(@{ $email_data->{Message} }, ['D',$dir->{RemoteDir},$file]);
 				}
 			}
 		} else {
@@ -464,14 +513,16 @@ sub download_loop($$$) {
 # input parms		\%conn_prf	Connection Profile configuration values
 # 			$conn		Connection Object
 # 			\@date		Current date
+# 			\%email_data	Hash of Email Notification Data
 #
 # returns		0 on success
 # 			1 on general failure
 
-sub upload_loop($$$) {
+sub upload_loop($$$$) {
 	my($conn_prf) = shift;
 	my($conn) = shift;
 	my($date) = shift;
+	my($email_data) = shift;
 
 	foreach my $key (keys %{$conn_prf->{Upload}}) {
 		my($dir) = $conn_prf->{Upload}->{$key};
@@ -505,11 +556,14 @@ sub upload_loop($$$) {
 			foreach my $file (@list) {
 				my($file2) = encrypt_wrap($dir, $file);
 
+				# Swap file & file2 data
 				if($file2 ne "") {
 					my($file3) = $file;
 					$file = $file2;
 					$file2 = $file3;
 				}
+				# file = Encrypted file if encrypted, otherwise file
+				# file2 = Original file if encrypted
 
 				myprint(P_INFO, "Sending '$file'...\n");
 				put_wrap($conn_prf, $conn, $file, $dir->{LocalDir}, $dir->{RemoteDir}, $dir->{TransferType});
@@ -534,6 +588,12 @@ sub upload_loop($$$) {
 						}
 					}
 				}
+
+				if($file2 ne "") {
+					push(@{ $email_data->{Message} }, ['U',$dir->{RemoteDir},$file2]);
+				} else {
+					push(@{ $email_data->{Message} }, ['U',$dir->{RemoteDir},$file]);
+				}
 			}
 		
 		} else {
@@ -544,6 +604,61 @@ sub upload_loop($$$) {
 	# FIXME: Do we need to actually do error checking?
 	return 0;
 
+}
+
+# send_email()		Parse E-Mail Hash and send E-Mail
+#
+# input parms		\%conn_prf	Connection Profile configuration values
+# 			\%email_data	Hash of Email Notification Data
+#
+# returns		0 on success
+# 			1 on general failure
+sub send_email($$) {
+	my($conn_prf) = shift;
+	my($email) = shift;
+
+	my(@xfrlog);
+	@xfrlog = sort {
+		$a->[0] cmp $b->[0] ||
+		$a->[1] cmp $b->[1] ||
+		$a->[2] cmp $b->[2]
+	} @{ $email->{Message} };
+
+	if($#xfrlog == -1) {
+		return 0;
+	}
+
+	$email->{Message} = "The following file transfers have completed on " . 
+		$conn_prf->{ConnType} . "://" . 
+		$conn_prf->{User} . '@' . $conn_prf->{Server} . ':' .
+		$conn_prf->{Port} . "\n";
+	
+	my($type_l, $dir_l) = ('','');
+
+	foreach my $xfr (@xfrlog) {
+		if($$xfr[0] ne $type_l) {
+			if($$xfr[0] eq 'D') {
+				$email->{Message} .= "\nDownloads:";
+			}
+			elsif($$xfr[0] eq 'U') {
+				$email->{Message} .= "\nUploads:";
+			}
+			$type_l = $$xfr[0];
+		}
+		if($$xfr[1] ne $dir_l) {
+			$email->{Message} .= "\n  Dir: $$xfr[1]\n";
+			$dir_l = $$xfr[1];
+		}
+
+		$email->{Message} .= "    $$xfr[2]\n";
+
+	}
+	
+	myprint(P_INFO, "Sending E-Mail Notification from $email->{From} to $email->{To}.\n");
+
+	if(!sendmail(%{ $email })) {
+		myprint(P_DEBUG, "Error sending Notification E-Mail: ".$Mail::Sendmail::error."\n") and die;
+	}
 }
 
 ########################################################################################################
@@ -984,6 +1099,8 @@ sub main($) {
 	my($date) = get_date();
 
 	for my $key (keys %{$config}) {
+		my($email_data) = { 'Message' => [] };
+
 		$verbosity = $config->{$key}->{Verbosity};
 		if($config->{$key}->{LogFile} ne "") {
 			open(SAVEOUT, ">&STDOUT");
@@ -992,15 +1109,22 @@ sub main($) {
 				or (myprint(P_ERROR, "Can't open Log File $config->{$key}->{LogFile}: $!\n") and die);
 			open(STDERR, ">&STDOUT");
 		}
+		
+		if($config->{$key}->{EmailList} ne "") {
+			my(@emaillist) = split(/,/, $config->{$key}->{EmailList});
+			$email_data->{From} = shift(@emaillist);
+			$email_data->{To} = join(',', @emaillist);
+			$email_data->{Subject} = "File Transfer Notification for $key";
+		}
 
 		if($config->{$key}->{Active} eq "1" or $test == 1) {
 			my($conn) = connect_wrap($config->{$key});
 	
-			if(download_loop($config->{$key}, $conn, $date) != 0) {
+			if(download_loop($config->{$key}, $conn, $date, $email_data) != 0) {
 				myprint(P_ERROR, "Error in download loop!\n") and die;
 			}
 	
-			if(upload_loop($config->{$key}, $conn, $date) != 0) {
+			if(upload_loop($config->{$key}, $conn, $date, $email_data) != 0) {
 				myprint(P_ERROR, "Error in upload loop!\n") and die;
 			}
 
@@ -1008,6 +1132,8 @@ sub main($) {
 		} else {
 			myprint(P_INFO, "Connection profile $key is Inactive.\n");
 		}
+
+		send_email($config->{$key}, $email_data) if(defined $email_data->{From});
 
 		if($config->{$key}->{LogFile} ne "") {
 			close(STDOUT);
