@@ -98,6 +98,7 @@ sub validate_config($) {
 
 		# Set default values
 		foreach my $fldval (
+			["Port", "0"],
 			["User", ""],
 			["AuthType", "Password"],
 			["AuthData", ""],
@@ -120,9 +121,10 @@ sub validate_config($) {
 			myprint(P_ERROR, "Invalid ConnType '$config->{$conn}->{ConnType}' in Connection $conn\n") and die;
 		}
 
-		if((grep $config->{$conn}->{AuthType},("Password","Identity")) == 0) {
-			myprint(P_ERROR, "Unknown AuthType '$config->{$conn}->{AuthType}' in Connection $conn\n") and die;
+		if(!($config->{$conn}->{Port} =~ m/^[0-9]+$/)) {
+			myprint(P_ERROR, "Invalid Port '$config->{$conn}->{Port}' in Connection $conn (must be non-negative integer)\n") and die;
 		}
+
 		if($config->{$conn}->{AuthType} eq "Identity" &&
 			$config->{$conn}->{ConnType} ne "sftp") {
 			myprint(P_ERROR, "AuthType '$config->{$conn}->{AuthType}' specified for non sftp Connection $conn\n") and die;
@@ -229,6 +231,18 @@ sub validate_config($) {
 				}
 			}
 		}
+
+		# Determine Port value when set to Auto
+		if($config->{$conn}->{Port} eq 0) {
+			if($config->{$conn}->{ConnType} == "ftp") {
+				$config->{$conn}->{Port} = 21;
+			} elsif($config->{$conn}->{ConnType} == "ftps") {
+				$config->{$conn}->{Port} = 21;
+			} elsif($config->{$conn}->{ConnType} == "sftp") {
+				$config->{$conn}->{Port} = 22;
+			}
+		}
+
 	}
 
 	myprint(P_DEBUG5, "Cleaned configuration:\n");
@@ -560,34 +574,39 @@ sub connect_wrap($) {
 
 	if($conn_prf->{ConnType} eq "sftp") {
 		if($conn_prf->{AuthType} eq "Password") {
-			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using PASSWORD...\n");
+			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
 			$conn = Net::SFTP->new(
 					$conn_prf->{Server},
 					user => $conn_prf->{User}, 
 					password => $conn_prf->{AuthData},
-					debug => $conn_prf->{Debug}
+					debug => $conn_prf->{Debug},
+					ssh_args => [
+						port => $conn_prf->{Port}
+					]
 				) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
 		} else {
-			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using IDENTITY...\n");
+			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using IDENTITY...\n");
 			$conn = Net::SFTP->new(
 					$conn_prf->{Server},
 					user => $conn_prf->{User}, 
 					debug => $conn_prf->{Debug},
 					ssh_args => [ 
-						identity_files => [ $conn_prf->{AuthData} ]
+						identity_files => [ $conn_prf->{AuthData} ],
+						port => $conn_prf->{Port}
 					]
 				) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
 		}
 	} elsif($conn_prf->{ConnType} eq "ftp") {
-		myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using PASSWORD...\n");
+		myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
 		$conn = Net::FTP->new(
 				$conn_prf->{Server},
-				Debug => $conn_prf->{Debug}
+				Debug => $conn_prf->{Debug},
+				Port => $conn_prf->{Port}
 			) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
 		$conn->login($conn_prf->{User}, $conn_prf->{AuthData})
 			or (myprint(P_ERROR, "Cannot login to $conn_prf->{Server}: %s\n", $conn->message) and die);
 	} elsif($conn_prf->{ConnType} eq "ftps") {
-		myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using PASSWORD...\n");
+		myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
 		$conn = new WWW::Curl::Easy;
 		$conn->setopt(CURLOPT_FTP_SSL,1);
 		$conn->setopt(CURLOPT_FTP_SSL_CCC,1);
@@ -596,6 +615,7 @@ sub connect_wrap($) {
 		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server});
 		$conn->setopt(CURLOPT_USERPWD,$conn_prf->{User}.':'.$conn_prf->{AuthData});
 		$conn->setopt(CURLOPT_VERBOSE,$conn_prf->{Debug});
+		$conn->setopt(CURLOPT_PORT,$conn_prf->{Port});
 	
 		my($fileb);
 		open($fileb, ">", "/dev/null");
