@@ -1,0 +1,653 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+
+use Net::SFTP;
+use File::Copy;
+use File::Path;
+use File::Basename;
+use Data::Dumper;
+use Config::General;
+use POSIX qw{ strftime };
+use Cwd qw{ abs_path };
+
+########################################################################################################
+# Constants
+########################################################################################################
+
+use constant P_ERROR  => -1;
+use constant P_PROG   =>  1;
+use constant P_INFO   =>  2;
+use constant P_DEBUG  =>  3;
+use constant P_DEBUG1 =>  3;
+use constant P_DEBUG2 =>  4;
+use constant P_DEBUG3 =>  5;
+use constant P_DEBUG4 =>  6;
+use constant P_DEBUG5 =>  7;
+
+########################################################################################################
+# Globals
+########################################################################################################
+
+my($fh);			# Text output filehandle
+my($verbosity) = P_PROG;	# Current verbosity level
+
+########################################################################################################
+# Subroutines
+########################################################################################################
+
+# myprint()		Conditionally print messages based on the current verbosity, and message level
+# 
+# input parms		$level	Passed message severity level
+# 			@_	Variable lenght argument list parseable by printf
+#
+# returns		none
+
+sub myprint(@)
+{
+	my($level) = shift;
+
+	if($verbosity >= $level) {
+		printf(strftime("%b %d %T ", localtime));
+		printf(@_);
+	}
+}
+
+# get_progpath()	Detect the current running script's path & name
+#
+# input parms	none
+#
+# returns	$prog	The current running script's name
+# 		$path	The current running script's path
+
+sub get_progpath() {
+	if($0 =~ m#^[^/]#) {
+		return fileparse(abs_path(abs_path(".") . '/' . $0));
+	} else {
+		return fileparse($0);
+	}
+}
+
+# validate_config()	Check current config for correctness & completeness
+#
+# input parms	\%config	Configuration values
+#
+# returns	none
+
+sub validate_config($) {
+
+	my($config) = shift;
+
+	myprint(P_DEBUG5, "Read configuration as:\n");
+	myprint(P_DEBUG5, Dumper($config));
+
+	# Connection level loop
+	foreach my $conn (sort(keys %{$config})) {
+
+		# Required fields
+		foreach my $fld ("Server", "ConnType") {
+			if(!defined($config->{$conn}->{$fld}) || $config->{$conn}->{$fld} eq "") {
+				die "Missing required field $fld in Connection $conn!";
+			}
+		}
+
+		# Set default values
+		foreach my $fldval (
+					["User", ""],
+					["AuthType", "Password"],
+					["AuthData", ""],
+					["Verbosity", P_INFO],
+					["LogFile", ""],
+					["Active", "0"]) {
+			
+			if(!defined($config->{$conn}->{$fldval->[0]}) || $config->{$conn}->{$fldval->[0]} eq "") {
+				$config->{$conn}->{$fldval->[0]} = $fldval->[1];
+			}
+		}
+		if($config->{$conn}->{Verbosity} >= P_DEBUG) {
+			$config->{$conn}->{Debug} = 1;
+		} else {
+			$config->{$conn}->{Debug} = 0;
+		}
+
+		# Check set values
+		if($config->{$conn}->{ConnType} ne "sftp") {
+			die "Invalid ConnType $config->{$conn}->{ConnType} in Connection $conn";
+		}
+
+		if($config->{$conn}->{AuthType} ne "Password" &&
+			$config->{$conn}->{AuthType} ne "Identity") {
+			die "Unknown AuthType $config->{$conn}->{AuthType} in Connection $conn";
+		}
+		if($config->{$conn}->{AuthType} eq "Identity" &&
+			$config->{$conn}->{ConnType} ne "sftp") {
+			die "AuthType $config->{$conn}->{AuthType} specified for non sftp Connection $conn";
+		}
+		if(!($config->{$conn}->{Verbosity} =~ /^(-1)|([1234567])$/)) {
+			die "Unknown Verbosity flag $config->{$conn}->{Verbosity} specified Connection $conn";
+		}
+		if(!($config->{$conn}->{Active} =~ /^[01]$/)) {
+			die "Unknown Active flag $config->{$conn}->{Active} specified Connection $conn";
+		}
+
+		if(defined($config->{$conn}->{Download})) {
+			# Download level loop
+			foreach my $prf (sort(keys %{$config->{$conn}->{Download}})) {
+				# Required fields
+				foreach my $fld ("RemoteDir", "Regex", "LocalDir", "TempDir") {
+					if(!defined($config->{$conn}->{Download}->{$prf}->{$fld}) || 
+						$config->{$conn}->{Download}->{$prf}->{$fld} eq "") {
+						die "Missing required field $fld in Download profile $prf, Connection $conn!";
+					}
+				}
+
+				# Set default values
+				foreach my $fldval (
+							["ArchiveDir", ""],
+							["MakeList", "0"],
+							["Active", "0"],
+							["Debug", "0"]) {
+
+					if(!defined($config->{$conn}->{Download}->{$prf}->{$fldval->[0]}) ||
+						$config->{$conn}->{Download}->{$prf}->{$fldval->[0]} eq "") {
+						$config->{$conn}->{Download}->{$prf}->{$fldval->[0]} = $fldval->[1];
+					}
+				}
+				
+				# Check set values
+				if(!($config->{$conn}->{Download}->{$prf}->{MakeList} =~ /^[01]$/)) {
+					die "Unknown MakeList flag $config->{$conn}->{Download}->{$prf}->{MakeList} in Download profile $prf, Connection $conn";
+				}
+				if(!($config->{$conn}->{Download}->{$prf}->{Debug} =~ /^[01]$/)) {
+					die "Unknown Debug flag $config->{$conn}->{Download}->{$prf}->{Debug} in Download profile $prf, Connection $conn";
+				}
+			}
+		}
+
+		if(defined($config->{$conn}->{Upload})) {
+			# Upload level loop
+			foreach my $prf (sort(keys %{$config->{$conn}->{Upload}})) {
+				# Required fields
+				foreach my $fld ("RemoteDir", "Regex", "LocalDir", "TempDir") {
+					if(!defined($config->{$conn}->{Upload}->{$prf}->{$fld}) || 
+						$config->{$conn}->{Upload}->{$prf}->{$fld} eq "") {
+						die "Missing required field $fld in Upload profile $prf, Connection $conn!";
+					}
+				}
+
+				# Set default values
+				foreach my $fldval (
+							["ArchiveDir", ""],
+							["Active", "0"],
+							["Debug", "0"]) {
+
+					if(!defined($config->{$conn}->{Upload}->{$prf}->{$fldval->[0]}) ||
+						$config->{$conn}->{Upload}->{$prf}->{$fldval->[0]} eq "") {
+						$config->{$conn}->{Upload}->{$prf}->{$fldval->[0]} = $fldval->[1];
+					}
+				}
+
+				# Check set values
+				if(!($config->{$conn}->{Upload}->{$prf}->{Debug} =~ /^[01]$/)) {
+					die "Unknown Debug flag $config->{$conn}->{Upload}->{$prf}->{Debug} in Upload profile $prf, Connection $conn";
+				}
+			}
+		}
+	}
+
+	myprint(P_DEBUG5, "Cleaned configuration:\n");
+	myprint(P_DEBUG5, Dumper($config));
+}
+
+# get_config()	Uses Config::General to parse a config file into a %hash
+#
+# input parms	$config_path	Path to config
+#
+# returns	\%config	Configuration values
+
+sub get_config($) {
+
+	my($config_path) = shift;
+	my($config_obj) = new Config::General($config_path);
+	my($type, $config) = $config_obj->getall;
+
+	validate_config($config);
+
+	return $config;
+
+}
+
+# get_date()	Returns an array of values corresponding to time( now );
+#
+# input parms	None
+#
+# returns	\@date	Values corresponding to time( now );
+
+sub get_date() {
+
+	my(@date) = localtime(time);
+
+	$date[0] = sprintf("%02d", $date[0]);		# %s%  Second
+	$date[1] = sprintf("%02d", $date[1]);		# %m%  Minute
+	$date[2] = sprintf("%02d", $date[2]);		# %h%  Hour
+	$date[3] = sprintf("%02d", $date[3]);		# %D%  day of Month
+	$date[4] = sprintf("%02d", ($date[4] + 1));	# %M%  Month
+	$date[5] = sprintf("%04d", ($date[5] + 1900));	# %CY% Year 4-Dig
+	$date[7] = sprintf("%03d", ($date[7] + 1));	# %J%  Day of Year
+	$date[9] = substr($date[5],1,2);		# %C%  Century
+	$date[10] = substr($date[5],3,2);		# %Y%  Year 2-Dig
+
+	return \@date;
+
+}
+
+# var_replace()	Replace wildcard values in a string with current date values
+#
+# Wildcards replaced:
+# %s%   Current Second          00-59 (60 on leap-second)
+# %m%   Current Minute          00-59
+# %h%   Current Hour            00-23
+# %M%   Current Month           00-12
+# %D%   Current Day of Month    00-31
+# %CY%  Current 4-Dig Year      CCYY
+# %C%   Current 2-Dig Century   CC
+# %Y%   Current 2-Dig Year      YY
+# %J%   Current Day of Year     001-366
+#
+# input parms	$str	String to operate on
+# 		\@date	Date values to use for replacement
+#
+# returns	$str	modified string
+
+sub var_replace($$) {
+	my($str) = shift;
+	my(@date) = @{(shift)};
+
+	$str =~ s/[%]s[%]/$date[0]/g;
+	$str =~ s/[%]m[%]/$date[1]/g;
+	$str =~ s/[%]h[%]/$date[2]/g;
+	$str =~ s/[%]D[%]/$date[3]/g;
+	$str =~ s/[%]M[%]/$date[4]/g;
+	$str =~ s/[%]CY[%]/$date[5]/g;
+	$str =~ s/[%]J[%]/$date[7]/g;
+	$str =~ s/[%]C[%]/$date[9]/g;
+	$str =~ s/[%]Y[%]/$date[10]/g;
+
+	return $str;
+}
+
+# download_loop()	Loop through download directory profiles, downloading whatever matches
+#
+# input parms		\%conn_info	Connection configuration values
+# 			$conn		Connection Object
+# 			\@date		Current date
+#
+# returns		0 on success
+# 			1 on general failure
+
+sub download_loop($$$) {
+	my($conn_info) = shift;
+	my($conn) = shift;
+	my($date) = shift;
+
+	foreach my $key (keys %{$conn_info->{Download}}) {
+		my($dir) = $conn_info->{Download}->{$key};
+
+		if($dir->{Active} eq "0") {
+			myprint(P_INFO, "Download profile $key is Inactive.\n");
+			next;
+		}
+
+		# Replace %Variables%
+		$dir->{LocalDir} = var_replace($dir->{LocalDir}, $date);
+		$dir->{RemoteDir} = var_replace($dir->{RemoteDir}, $date);
+		$dir->{ArchiveDir} = var_replace($dir->{ArchiveDir}, $date);
+
+		mkpath($dir->{LocalDir});
+		mkpath($dir->{ArchiveDir});
+		mkpath($dir->{TempDir});
+		chdir($dir->{TempDir});
+	
+		myprint(P_INFO, "Getting file list for '$dir->{RemoteDir}'.\n");
+		my(@list) = grep { $_ =~ m/$dir->{Regex}/ } ls_wrap($conn, $dir->{RemoteDir});
+
+		if($#list >= 0) {
+			myprint(P_PROG, "Downloading all files matching /$dir->{Regex}/ in '$dir->{RemoteDir}'.\n");
+			foreach my $file (@list) {
+				if($file =~ m/$dir->{Regex}/i) {
+					myprint(P_INFO, "Receiving '$file'...\n");
+					get_wrap($conn, $file, $dir->{RemoteDir});
+	
+					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
+						myprint(P_INFO, "Copying file '$file' to '$dir->{LocalDir}'...\n");
+						copy($dir->{TempDir} . '/' . $file, $dir->{LocalDir} . '/')
+							or die "$!";
+					}
+
+					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
+						myprint(P_INFO, "Moving file '$file' to '$dir->{ArchiveDir}'...\n");
+						move($dir->{TempDir} . '/' . $file, $dir->{ArchiveDir} . '/')
+							or die "$!";
+					}
+
+					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
+						myprint(P_INFO, "Removing file '$file' from server '$conn_info->{Server}'...\n");
+						rm_wrap($conn, $file, $dir->{RemoteDir});
+					}
+				}
+			}
+		} else {
+			myprint(P_PROG, "No files matching /$dir->{Regex}/ in '$dir->{RemoteDir}'.\n");
+		}
+
+		if($dir->{MakeList} eq "1") {
+			my(@list) = grep { $_ =~ m/$dir->{Regex}/ } ls_wrap("LocalDir", $dir->{LocalDir});
+			if($#list >= 0) {
+				open(OUT, "> " . $dir->{TempDir} . "/" . $key . ".lst")
+					or die "Can't open file " . $dir->{TempDir} . "/" . $key . ".txt for writing: $!";
+				foreach my $file (@list) {
+					if($file =~ m/$dir->{Regex}/i) {
+						print OUT "$file\n";
+					}
+				}
+				close(OUT);
+
+				if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
+					myprint(P_INFO, "Moving file '$key.lst' to '$dir->{LocalDir}'...\n");
+					move($dir->{TempDir} . '/' . $key . ".lst", $dir->{LocalDir} . '/')
+						or die "$!";
+				}
+			}
+		}
+	}
+
+	# FIXME: Do we need to actually do error checking?
+	return 0;
+
+}
+
+# upload_loop()		Loop through upload directory profiles, uploading whatever matches
+#
+# input parms		\%conn_info	Connection configuration values
+# 			$conn		Connection Object
+# 			\@date		Current date
+#
+# returns		0 on success
+# 			1 on general failure
+
+sub upload_loop($$$) {
+	my($conn_info) = shift;
+	my($conn) = shift;
+	my($date) = shift;
+
+	foreach my $key (keys %{$conn_info->{Upload}}) {
+		my($dir) = $conn_info->{Upload}->{$key};
+
+		if($dir->{Active} eq "0") {
+			myprint(P_INFO, "Upload profile $key is Inactive.\n");
+			next;
+		}
+
+		mkpath($dir->{TempDir});
+		chdir($dir->{TempDir});
+	
+		# Replace %Variables%
+		$dir->{LocalDir} = var_replace($dir->{LocalDir}, $date);
+		$dir->{RemoteDir} = var_replace($dir->{RemoteDir}, $date);
+		$dir->{ArchiveDir} = var_replace($dir->{ArchiveDir}, $date);
+
+		myprint(P_INFO, "Getting file list for '$dir->{LocalDir}'.\n");
+		opendir(DIR, $dir->{LocalDir}) or die "Can't open directory '$dir->{LocalDir}': $!";
+		my(@list) = grep { -f $dir->{LocalDir} . "/" . $_ && /$dir->{Regex}/ } readdir(DIR);
+		closedir(DIR);
+
+		if($#list >= 0) {
+			myprint(P_PROG, "Uploading all files matching /$dir->{Regex}/ in '$dir->{LocalDir}'.\n");
+			foreach my $file (@list) {
+				if($file =~ m/$dir->{Regex}/i) {
+					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
+						myprint(P_INFO, "Sending '$file'...\n");
+						put_wrap($conn, $file, $dir->{LocalDir}, $dir->{RemoteDir});
+					}
+
+					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
+						myprint(P_INFO, "Moving file '$file' to '$dir->{ArchiveDir}'...\n");
+						mkpath($dir->{ArchiveDir});
+						move($dir->{LocalDir} . '/' . $file, $dir->{ArchiveDir} . '/')
+							or die "$!";
+					}
+				}
+			}
+		} else {
+			myprint(P_PROG, "No files matching /$dir->{Regex}/ in '$dir->{LocalDir}'.\n");
+		}
+	}
+
+	# FIXME: Do we need to actually do error checking?
+	return 0;
+
+}
+
+# connect_wrap()	Connects to specified server
+#
+# input parms	\%conn_info	Connection configuration values
+#
+# returns	$conn		Connection Object
+
+sub connect_wrap($) {
+	my($conn_info) = shift;
+
+	my($conn);
+
+	if($conn_info->{ConnType} eq "sftp") {
+		if($conn_info->{AuthType} eq "Password") {
+			myprint(P_PROG, "Logging in to server '$conn_info->{Server}' as '$conn_info->{User}' using PASSWORD...\n");
+			$conn = Net::SFTP->new(
+					$conn_info->{Server},
+					user => $conn_info->{User}, 
+					password => $conn_info->{AuthData},
+					debug => $conn_info->{Debug}
+				) or die "Cannot connect to $conn_info->{Server}: $!\n\n";
+		} else {
+			myprint(P_PROG, "Logging in to server '$conn_info->{Server}' as '$conn_info->{User}' using IDENTITY...\n");
+			$conn = Net::SFTP->new(
+					$conn_info->{Server},
+					user => $conn_info->{User}, 
+					debug => $conn_info->{Debug},
+					ssh_args => [ 
+						identity_files => [ $conn_info->{AuthData} ]
+					]
+				) or die "Cannot connect to $conn_info->{Server}: $!\n\n";
+		}
+	} else {
+		die "Unknown ConnType $conn_info->{ConnType}!";
+	}
+
+	return $conn;
+
+}
+
+# disconnect_wrap()	Disconnects from specified server
+#
+# input parms	\%conn_info	Connection configuration values
+#		$conn		Connection Object
+#
+# returns	none
+
+sub disconnect_wrap($$) {
+	my($conn_info) = shift;
+	my($conn) = shift;
+
+	myprint(P_PROG, "Disconnecting from server '$conn_info->{Server}'...\n");
+	if($conn_info->{ConnType} eq "sftp") {
+		undef $conn;
+	} else {
+		die "Unknown ConnType $conn_info->{ConnType}!";
+	}
+
+}
+
+# ls_wrap()	Get file list for specified directory via connection
+#
+# input parms	$conn	Connection Object
+# 		$dir	Directory to list
+#
+# returns	@list	Directory Listing
+
+sub ls_wrap($$) {
+	my($conn) = shift;
+	my($dir) = shift;
+	my(@list) = ();
+
+	if($conn =~ /^Net::SFTP/) {
+		foreach my $item ($conn->ls($dir)) {
+			push @list, $item->{filename};
+		}
+	} elsif($conn =~ /^LocalDir/) {
+		opendir(DIR, $dir)
+			or die "Can't open directory $dir: $!";
+		@list = readdir(DIR);
+		closedir(DIR)
+			or die "Can't close directory $dir: $!";
+	} else {
+		die "Unknown connection type: $conn";
+	}
+
+	return @list;
+
+}
+
+# get_wrap()	Get specified file via connection
+#
+# input parms	$conn	Connection Object
+# 		$file	File to get
+# 		$dir	Directory file is located
+#
+# returns		0 on success
+# 			1 on general failure
+
+sub get_wrap($$$) {
+	my($conn) = shift;
+	my($file) = shift;
+	my($dir) = shift;
+
+	if($conn =~ /^Net::SFTP/) {
+		$conn->get($dir . '/' . $file,
+			$file);
+		die "Error receiving '$file'"
+			unless(-e $file);
+	} else {
+		die "Unknown connection type: $conn";
+	}
+
+	return 0;
+
+}
+
+# put_wrap()	Put specified file via connection
+#
+# input parms	$conn		Connection Object
+# 		$file		File to put
+# 		$dir		Directory file is located
+# 		$rmt_dir	Remote directory to put file
+#
+# returns		0 on success
+# 			1 on general failure
+
+sub put_wrap($$$$) {
+	my($conn) = shift;
+	my($file) = shift;
+	my($dir) = shift;
+	my($rmt_dir) = shift;
+
+	if($conn =~ /^Net::SFTP/) {
+		$conn->put($dir . '/' . $file, $rmt_dir . '/' . $file)
+			or die "Error sending '$file'";
+	} else {
+		die "Unknown connection type: $conn";
+	}
+
+	return 0;
+
+}
+
+# rm_wrap()	Remove specified file via connection
+#
+# input parms	$conn	Connection Object
+# 		$file	File to remove
+# 		$dir	Directory file is located
+#
+# returns		0 on success
+# 			1 on general failure
+
+sub rm_wrap($$$) {
+	my($conn) = shift;
+	my($file) = shift;
+	my($dir) = shift;
+
+	if($conn =~ /^Net::SFTP/) {
+		$conn->do_remove($dir . '/' . $file);
+	} else {
+		die "Unknown connection type: $conn";
+	}
+
+	return 0;
+
+}
+
+########################################################################################################
+# Main
+########################################################################################################
+
+sub main($) {
+	my(@argv) = @{(shift)};
+	my($prog,$path) = get_progpath();
+
+	if($#argv == -1) {
+		die "usage: $prog path_to_sndrcv.ini";
+	}
+
+	my($config) = get_config($argv[0]);
+
+	my($date) = get_date();
+
+	for my $key (keys %{$config}) {
+		$verbosity = $config->{$key}->{Verbosity};
+		if($config->{$key}->{LogFile} ne "") {
+			open(SAVEOUT, ">&STDOUT");
+			open(SAVEERR, ">&STDERR");
+			open(STDOUT, ">> $config->{$key}->{LogFile}")
+				or die "Can't open Log File $config->{$key}->{LogFile}: $!";
+			open(STDERR, ">&STDOUT");
+		}
+
+		if($config->{$key}->{Active} eq "1") {
+			my($conn) = connect_wrap($config->{$key});
+	
+			if(download_loop($config->{$key}, $conn, $date) != 0) {
+				die "Error in download loop!";
+			}
+	
+			if(upload_loop($config->{$key}, $conn, $date) != 0) {
+				die "Error in upload loop!";
+			}
+
+			disconnect_wrap($config->{$key}, $conn);
+		} else {
+			myprint(P_INFO, "Connection profile $key is Inactive.\n");
+		}
+
+		if($config->{$key}->{LogFile} ne "") {
+			close(STDOUT);
+			open(STDOUT, ">&SAVEOUT");
+			open(STDERR, ">&SAVEERR");
+		}
+	}
+
+	exit 0;
+	close(SAVEOUT);
+	close(SAVEERR);
+}
+
+main(\@ARGV);

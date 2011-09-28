@@ -1,0 +1,5 @@
+# Ignore configuration files
+config/*
+
+# Ignore vi temporary files
+*/.*.swp

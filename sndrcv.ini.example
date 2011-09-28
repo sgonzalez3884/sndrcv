@@ -1,0 +1,217 @@
+<Connection X>
+	# Connection-Wide settings
+
+	Server		""	# Server name to connect to, IP or Hostname.
+				# Required field
+
+	ConnType	""	# Connection type.
+				# Current supported types:
+				# 	ftp		FTP (via Net::FTP)
+				# 	ftps		Secrue FTP using TLS (via WWW::Curl)
+				# 	sftp		Secure FTP using SSH2 (via Net::SFTP)
+				# Required field
+
+	Port		""	# Connection Port.
+				# Possible data:
+				# 	0		Auto
+				#		Auto port for ftp: 21
+				#		Auto port for ftps: 21
+				#		Auto port for sftp: 22
+				# Default value: 0 (Auto)
+
+	User		""	# User name to authenticate as.
+				# Default value: Empty string
+
+	AuthType	""	# Type of authentication credential.
+				# Current supported types: 
+				#	Password	Authenticate with password
+				#	Identity	Authenticate with an IdentityFile. Valid only for sftp connection type.
+				# Default value: Password
+
+	AuthData	""	# AuthType dependent data to authenticate with, value depends on AuthType.
+				# Possible data:
+				#       Password	Place cleartext password inside the quotes, watch out for Perl escape sequences
+				#		******** WARNING ******** This is insecure, your password is stored in cleartext
+				# 	Identity	Place full path to identity file to use for authentication.
+				# Default value: Empty string
+
+	Verbosity	""	# Verbosity level, used to control connection messages
+				# Current supported levels:
+				# 	-1	P_ERROR:  Only print hard error messages.
+				#	 1	P_PROG:   Print out progress messages, and above.
+				#	 2	P_INFO:   Print out informational messages, and above.
+				#	 3	P_DEBUG:  Print out basic debugging messages, and above.
+				#	 4	P_DEBUG2: Print out level 2 debbuging messages, and above.
+				#	 5	P_DEBUG3: Print out level 3 debbuging messages, and above.
+				#	 6	P_DEBUG4: Print out level 4 debbuging messages, and above.
+				#	 7	P_DEBUG5: Print out level 5 debbuging messages, and above.
+				# Default value: 2 (P_INFO)
+				# Note: Setting a level of P_DEBUG or higher will override the Debug flag to 1 in The Download/Upload profiles
+
+	LogFile		""	# Log File location.  If specified, all program output will be placed in this file instead of stdout.
+				# Default value: Empty string (Output to screen)
+
+	EmailList	""	# List of E-Mails to send transfer notifications to
+				# Default value: Empty string (No Notifications)
+				# Possible data: Comma separated list of at least 2 E-Mail addresses, 1st address is the from address
+
+	Active		""	# Determine wether to run this Connection profile, or not.
+				# Current supported values:
+				#	0	Do not run profile unless --test is specified on commandline
+				#	1	Run profile
+				# Default value: 0 (Do not run profile)
+
+	# Download profiles
+
+	# Variables Supported for *Dir, ArchivePst:
+	# %s%	Current Second		00-59 (60 on leap-second)
+	# %m%	Current Minute		00-59
+	# %h%	Current Hour		00-23
+	# %M%	Current Month		00-12
+	# %D%	Current Day of Month	00-31
+	# %CY%	Current 4-Dig Year	CCYY
+	# %C%	Current 2-Dig Century	CC
+	# %Y%	Current 2-Dig Year	YY
+	# %J%	Current Day of Year	001-366
+
+	<Download X>
+		RemoteDir	""	# Directory on the server where the downloadable files exist.
+					# Required field
+
+		Regex		""	# Perlre compatable regular expression used to choose what files to download.
+					# Required field
+
+		LocalDir	""	# Local directory to store downloaded data.
+					# Required field
+
+		TempDir		""	# Local directory to store all temporary data.
+					# Required field
+
+		ArchiveDir	""	# Local directory to store an archived copy of the data.
+					# Default value: empty string (No archive created)
+
+		ArchivePst	""	# Text to append to the Archived file.  Text will be placed prior to the last period
+					#  in the filename, if there is no period, text is appended to the end of the file
+					# Default value: empty string (No text appended)
+
+		CryptType	""	# Encryption Type to use.
+					# Current supported values:
+					#	PGP	If file ends in ".asc" or ".pgp", Decrypt files using Crypt::GPG and remove the ".asc"/".pgp"
+					# Default value: empty string (No decrypting)
+					
+		CryptData	""	# CryptType dependent data to be used when decrypting, value depends on CryptType
+					# Possible data:
+					#	PGP	Secret Key ID
+					# Default value: empty string (No decrypting)
+
+		TransferType	""	# Transfer Type to use.
+					# Current supported values:
+					#	ASCII	ASCII Transfer mode
+					#	BINARY	Binary Transfer mode
+					# Default value: BINARY
+
+		MakeList	""	# Create a text file containing 1 filename per line of downoaded files.
+					# File will be named X.lst (where X is the name given for this download group)
+					#  and placed in the LocalDir.
+					# Current supported values:
+					# 	0	Do not create List File
+					#	1	Create List File
+					# Default value: 0 (Do not create List File)
+
+		ListName	""	# Name of list to create on MakeList Option
+					# Default value: X.lst (where X is the name given for this download group)
+
+		EmailNotify	""	# Include this profile in E-Mail notifications. 
+					#  * Requires Non-Empty EmailList above
+					# Current supported values:
+					#	0	Do not include in E-Mail
+					#	1	Include in E-Mail
+					# Default value: 0 (Do not include in E-Mail)
+
+		Delete		""	# Delete remote files after Download.
+					# Current supported values:
+					#	0	Do not delete
+					#	1	Delete
+					# Default value: 1 (Delete) - Unless Debug is set to 1
+
+		Active		""	# Determine wether to run this Download profile, or not.
+					# Current supported values:
+					#	0	Do not run profile
+					#	1	Run profile
+					# Default value: 0 (Do not run profile)
+
+		Debug		""	# Determine wether to copy/move/delete files
+					#	0	Run in production mode, copy/move/delete files as needed
+					#	1	Run in debug mode, only download data
+					# Default value: 0 (Run in production mode, copy/move/delete files as needed)
+	</Download>
+
+	# Upload profiles
+
+	# Variables Supported for *Dir, ArchivePst:
+	# %s%	Current Second		00-59 (60 on leap-second)
+	# %m%	Current Minute		00-59
+	# %h%	Current Hour		00-23
+	# %M%	Current Month		00-12
+	# %D%	Current Day of Month	00-31
+	# %CY%	Current 4-Dig Year	CCYY
+	# %C%	Current 2-Dig Century	CC
+	# %Y%	Current 2-Dig Year	YY
+	# %J%	Current Day of Year	001-366
+
+	<Upload X>
+		LocalDir	""	# Local directory where the uploadable files exist.
+					# Required field
+
+		Regex		""	# Perlre compatable regular expression used to choose what files to upload.
+					# Required field
+
+		RemoteDir	""	# Directory on the server to place uploaded data.
+					# Required field
+
+		TempDir		""	# Local directory to store all temporary data.
+					# Required field
+
+		ArchiveDir	""	# Local directory to store an archived copy of the data.
+					# Default value: empty string (No archive created)
+
+		ArchivePst	""	# Text to append to the Archived file.  Text will be placed prior to the last period
+					#  in the filename, if there is no period, text is appended to the end of the file
+					# Default value: empty string (No text appended)
+
+		CryptType	""	# Decryption Type to use.
+					# Current supported values:
+					#	PGP	Encrypt files using Crypt::GPG, files will be appended with ".asc"
+					# Default value: empty string (No encrypting)
+
+		CryptData	""	# CryptType dependent data to be used when encrypting, value depends on CryptType
+					# Possible data:
+					#	PGP	Comma separated list of "Secret Key ID","Recipient ID"
+					# Default value: empty string (No encrypting)
+
+		TransferType	""	# Transfer Type to use.
+					# Current supported values:
+					#	ASCII	ASCII Transfer mode
+					#	BINARY	Binary Transfer mode
+					# Default value: BINARY
+
+		EmailNotify	""	# Include this profile in E-Mail notifications. 
+					#  * Requires Non-Empty EmailList above
+					# Current supported values:
+					#	0	Do not include in E-Mail
+					#	1	Include in E-Mail
+					# Default value: 0 (Do not include in E-Mail)
+
+		Active		""	# Determine wether to run this Upload profile, or not.
+					# Current supported values:
+					#	0	Do not run profile
+					#	1	Run profile
+					# Default value: 0 (Do not run profile)
+
+		Debug		""	# Determine wether to copy/move/delete files
+					#	0	Run in production mode, copy/move/delete files as needed
+					#	1	Run in debug mode, only upload data
+					# Default value: 0 (Run in production mode, copy/move/delete files as needed)
+	</Upload>
+
+</Connection>
