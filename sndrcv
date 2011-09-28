@@ -91,7 +91,7 @@ sub validate_config($) {
 		# Required fields
 		foreach my $fld ("Server", "ConnType") {
 			if(!defined($config->{$conn}->{$fld}) || $config->{$conn}->{$fld} eq "") {
-				myprint(P_ERROR, "Missing required field $fld in Connection $conn!\n") and die;
+				die "Missing required field $fld in Connection $conn!";
 			}
 		}
 
@@ -117,22 +117,22 @@ sub validate_config($) {
 		# Check set values
 		if($config->{$conn}->{ConnType} ne "sftp" &&
 			$config->{$conn}->{ConnType} ne "ftp") {
-			myprint(P_ERROR, "Invalid ConnType $config->{$conn}->{ConnType} in Connection $conn\n") and die;
+			die "Invalid ConnType $config->{$conn}->{ConnType} in Connection $conn";
 		}
 
 		if($config->{$conn}->{AuthType} ne "Password" &&
 			$config->{$conn}->{AuthType} ne "Identity") {
-			myprint(P_ERROR, "Unknown AuthType $config->{$conn}->{AuthType} in Connection $conn\n") and die;
+			die "Unknown AuthType $config->{$conn}->{AuthType} in Connection $conn";
 		}
 		if($config->{$conn}->{AuthType} eq "Identity" &&
 			$config->{$conn}->{ConnType} ne "sftp") {
-			myprint(P_ERROR, "AuthType $config->{$conn}->{AuthType} specified for non sftp Connection $conn\n") and die;
+			die "AuthType $config->{$conn}->{AuthType} specified for non sftp Connection $conn";
 		}
 		if(!($config->{$conn}->{Verbosity} =~ /^(-1)|([1234567])$/)) {
-			myprint(P_ERROR, "Unknown Verbosity flag $config->{$conn}->{Verbosity} specified Connection $conn\n") and die;
+			die "Unknown Verbosity flag $config->{$conn}->{Verbosity} specified Connection $conn";
 		}
 		if(!($config->{$conn}->{Active} =~ /^[01]$/)) {
-			myprint(P_ERROR, "Unknown Active flag $config->{$conn}->{Active} specified Connection $conn\n") and die;
+			die "Unknown Active flag $config->{$conn}->{Active} specified Connection $conn";
 		}
 
 		if(defined($config->{$conn}->{Download})) {
@@ -142,7 +142,7 @@ sub validate_config($) {
 				foreach my $fld ("RemoteDir", "Regex", "LocalDir", "TempDir") {
 					if(!defined($config->{$conn}->{Download}->{$prf}->{$fld}) || 
 						$config->{$conn}->{Download}->{$prf}->{$fld} eq "") {
-						myprint(P_ERROR, "Missing required field $fld in Download profile $prf, Connection $conn!\n") and die;
+						die "Missing required field $fld in Download profile $prf, Connection $conn!";
 					}
 				}
 
@@ -165,17 +165,17 @@ sub validate_config($) {
 				# Check set values
 				if($config->{$conn}->{Download}->{$prf}->{CryptType} ne "PGP" and
 					$config->{$conn}->{Download}->{$prf}->{CryptType} ne "") {
-					myprint(P_ERROR, "Unknown CryptType $config->{$conn}->{Download}->{$prf}->{CryptType} in Download profile $prf, Connection $conn\n") and die;
+					die "Unknown CryptType $config->{$conn}->{Download}->{$prf}->{CryptType} in Download profile $prf, Connection $conn";
 				}
 				if($config->{$conn}->{Download}->{$prf}->{CryptType} eq "PGP" and
 					$config->{$conn}->{Download}->{$prf}->{CryptData} eq "") {
-					myprint(P_ERROR, "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires CryptData in Download profile $prf, Connection $conn\n") and die;
+					die "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires CryptData in Download profile $prf, Connection $conn";
 				}
 				if(!($config->{$conn}->{Download}->{$prf}->{MakeList} =~ /^[01]$/)) {
-					myprint(P_ERROR, "Unknown MakeList flag $config->{$conn}->{Download}->{$prf}->{MakeList} in Download profile $prf, Connection $conn\n") and die;
+					die "Unknown MakeList flag $config->{$conn}->{Download}->{$prf}->{MakeList} in Download profile $prf, Connection $conn";
 				}
 				if(!($config->{$conn}->{Download}->{$prf}->{Debug} =~ /^[01]$/)) {
-					myprint(P_ERROR, "Unknown Debug flag $config->{$conn}->{Download}->{$prf}->{Debug} in Download profile $prf, Connection $conn\n") and die;
+					die "Unknown Debug flag $config->{$conn}->{Download}->{$prf}->{Debug} in Download profile $prf, Connection $conn";
 				}
 			}
 		}
@@ -187,7 +187,7 @@ sub validate_config($) {
 				foreach my $fld ("RemoteDir", "Regex", "LocalDir", "TempDir") {
 					if(!defined($config->{$conn}->{Upload}->{$prf}->{$fld}) || 
 						$config->{$conn}->{Upload}->{$prf}->{$fld} eq "") {
-						myprint(P_ERROR, "Missing required field $fld in Upload profile $prf, Connection $conn!\n") and die;
+						die "Missing required field $fld in Upload profile $prf, Connection $conn!";
 					}
 				}
 
@@ -209,18 +209,18 @@ sub validate_config($) {
 				# Check set values
 				if($config->{$conn}->{Upload}->{$prf}->{CryptType} ne "PGP" and
 					$config->{$conn}->{Upload}->{$prf}->{CryptType} ne "") {
-					myprint(P_ERROR, "Unknown CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} in Upload profile $prf, Connection $conn\n") and die;
+					die "Unknown CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} in Upload profile $prf, Connection $conn";
 				}
 				if($config->{$conn}->{Upload}->{$prf}->{CryptType} eq "PGP") {
 					if($config->{$conn}->{Upload}->{$prf}->{CryptData} eq "") {
-						myprint(P_ERROR, "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires CryptData in Upload profile $prf, Connection $conn\n") and die;
+						die "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires CryptData in Upload profile $prf, Connection $conn";
 					} elsif(!($config->{$conn}->{Upload}->{$prf}->{CryptData}) =~ m/^[^,]+,[^,]+$/) {
-						myprint(P_ERROR, "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires 2 items in CryptData in Upload profile $prf, Connection $conn\n") and die;
+						die "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires 2 items in CryptData in Upload profile $prf, Connection $conn";
 					}
 
 				}
 				if(!($config->{$conn}->{Upload}->{$prf}->{Debug} =~ /^[01]$/)) {
-					myprint(P_ERROR, "Unknown Debug flag $config->{$conn}->{Upload}->{$prf}->{Debug} in Upload profile $prf, Connection $conn\n") and die;
+					die "Unknown Debug flag $config->{$conn}->{Upload}->{$prf}->{Debug} in Upload profile $prf, Connection $conn";
 				}
 			}
 		}
@@ -362,8 +362,8 @@ sub download_loop($$$) {
 					}
 
 					myprint(P_INFO, "Copying file '$file' to '$dir->{LocalDir}'...\n");
-					copy($dir->{TempDir} . '/' . $file, $dir->{LocalDir} . '/') 
-						or (myprint(P_ERROR, "$!\n") and die);
+					copy($dir->{TempDir} . '/' . $file, $dir->{LocalDir} . '/')
+						or die "$!";
 
 					foreach my $arcfile ($file, $file2) {
 						if($arcfile ne "") {
@@ -376,7 +376,7 @@ sub download_loop($$$) {
 								}
 								myprint(P_INFO, "Moving file '$arcfile' to '$dir->{ArchiveDir}/$newfile'...\n");
 								move($dir->{TempDir} . '/' . $arcfile, $dir->{ArchiveDir} . '/' . $newfile)
-									or (myprint(P_ERROR, "$!\n") and die);
+									or die "$!";
 							} else {
 								unlink($dir->{TempDir} . '/' . $arcfile);
 							}
@@ -398,8 +398,7 @@ sub download_loop($$$) {
 			my(@list) = grep { $_ =~ m/$dir->{Regex}/i } ls_wrap("LocalDir", $dir->{LocalDir});
 			if($#list >= 0) {
 				open(OUT, "> " . $dir->{TempDir} . "/" . $key . ".lst")
-						or (myprint(P_ERROR, "Can't open file " . $dir->{TempDir} . "/" . $key . ".txt for writing: $!\n") and
-						die);
+					or die "Can't open file " . $dir->{TempDir} . "/" . $key . ".txt for writing: $!";
 				foreach my $file (@list) {
 					if($file =~ m/$dir->{Regex}/i) {
 						print OUT "$file\n";
@@ -410,7 +409,7 @@ sub download_loop($$$) {
 				if($conn_prf->{Debug} eq "0" and $dir->{Debug} eq "0") {
 					myprint(P_INFO, "Moving file '$key.lst' to '$dir->{LocalDir}'...\n");
 					move($dir->{TempDir} . '/' . $key . ".lst", $dir->{LocalDir} . '/')
-						or (myprint(P_ERROR, "$!\n") and die);
+						or die "$!";
 				}
 			}
 		}
@@ -457,8 +456,7 @@ sub upload_loop($$$) {
 		chdir($dir->{TempDir});
 	
 		myprint(P_INFO, "Getting file list for '$dir->{LocalDir}'.\n");
-		opendir(DIR, $dir->{LocalDir})
-			or (myprint(P_ERROR, "Can't open directory '$dir->{LocalDir}': $!\n") and die);
+		opendir(DIR, $dir->{LocalDir}) or die "Can't open directory '$dir->{LocalDir}': $!";
 		my(@list) = grep { -f $dir->{LocalDir} . "/" . $_ && /$dir->{Regex}/i } readdir(DIR);
 		closedir(DIR);
 
@@ -488,8 +486,8 @@ sub upload_loop($$$) {
 								}
 
 								myprint(P_INFO, "Moving file '$arcfile' to '$dir->{ArchiveDir}/$newfile'...\n");
-								move($dir->{LocalDir} . '/' . $arcfile, $dir->{ArchiveDir} . '/' . $newfile) 
-									or (myprint(P_ERROR, "$!\n") and die);
+								move($dir->{LocalDir} . '/' . $arcfile, $dir->{ArchiveDir} . '/' . $newfile)
+								or die "$!";
 							} else {
 								unlink($dir->{LocalDir} . '/' . $arcfile);
 							}
@@ -531,7 +529,7 @@ sub connect_wrap($) {
 					user => $conn_prf->{User}, 
 					password => $conn_prf->{AuthData},
 					debug => $conn_prf->{Debug}
-				) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
+				) or die "Cannot connect to $conn_prf->{Server}: $!";
 		} else {
 			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using IDENTITY...\n");
 			$conn = Net::SFTP->new(
@@ -541,20 +539,20 @@ sub connect_wrap($) {
 					ssh_args => [ 
 						identity_files => [ $conn_prf->{AuthData} ]
 					]
-				) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
+				) or die "Cannot connect to $conn_prf->{Server}: $!";
 		}
 	} elsif($conn_prf->{ConnType} eq "ftp") {
 		myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using PASSWORD...\n");
 		$conn = Net::FTP->new(
 				$conn_prf->{Server},
 				Debug => $conn_prf->{Debug}
-			) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
+			) or die "Cannot connect to $conn_prf->{Server}: $!";
 		$conn->login($conn_prf->{User}, $conn_prf->{AuthData})
-			or (myprint(P_ERROR, "Cannot login to $conn_prf->{Server}: %s\n", $conn->message) and die);
+			or die "Cannot login to $conn_prf->{Server}: ", $conn->message;
 		# FIXME: Does this need to be a configurable option?
 		$conn->binary;
 	} else {
-		myprint(P_ERROR, "Unknown ConnType $conn_prf->{ConnType}!\n") and die;
+		die "Unknown ConnType $conn_prf->{ConnType}!";
 	}
 
 	return $conn;
@@ -578,7 +576,7 @@ sub disconnect_wrap($$) {
 	} elsif($conn_prf->{ConnType} eq "ftp") {
 		$conn->quit;	
 	} else {
-		myprint(P_ERROR, "Unknown ConnType $conn_prf->{ConnType}!\n") and die;
+		die "Unknown ConnType $conn_prf->{ConnType}!";
 	}
 
 }
@@ -605,13 +603,13 @@ sub ls_wrap($$) {
 			push @list, $item;
 		}
 	} elsif($conn =~ /^LocalDir/) {
-		opendir(DIR, $dir) 
-			or (myprint(P_ERROR, "Can't open directory $dir: $!\n") and die);
+		opendir(DIR, $dir)
+			or die "Can't open directory $dir: $!";
 		@list = readdir(DIR);
 		closedir(DIR)
-			or (myprint(P_ERROR, "Can't close directory $dir: $!\n") and die);
+			or die "Can't close directory $dir: $!";
 	} else {
-		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
+		die "Unknown connection type: $conn";
 	}
 
 	foreach my $item (@list) {
@@ -637,14 +635,13 @@ sub get_wrap($$$) {
 
 	if($conn =~ /^Net::SFTP/) {
 		$conn->get($dir . '/' . $file, $file);
-		if(! -e $file) {
-			myprint(P_ERROR, "Error receiving '$file'\n") and die;
-		}
+		die "Error receiving '$file'"
+			unless(-e $file);
 	} elsif($conn =~ /^Net::FTP/) {
 		$conn->get($dir . '/' . $file, $file)
-			or (myprint(P_ERROR, "Error receiving '$file'\n") and die);
+			or die "Error receiving '$file'"
 	} else {
-		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
+		die "Unknown connection type: $conn";
 	}
 
 	return 0;
@@ -669,12 +666,12 @@ sub put_wrap($$$$) {
 
 	if($conn =~ /^Net::SFTP/) {
 		$conn->put($dir . '/' . $file, $rmt_dir . '/' . $file)
-			or (myprint(P_ERROR, "Error sending '$file'\n") and die);
+			or die "Error sending '$file'";
 	} elsif($conn =~ /^Net::FTP/) {
 		$conn->put($dir . '/' . $file, $rmt_dir . '/' . $file)
-			or (myprint(P_ERROR, "Error sending '$file'\n") and die);
+			or die "Error sending '$file'"
 	} else {
-		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
+		die "Unknown connection type: $conn";
 	}
 
 	return 0;
@@ -700,7 +697,7 @@ sub rm_wrap($$$) {
 	} elsif($conn =~ /^Net::FTP/) {
 		$conn->delete($dir . '/' . $file);
 	} else {
-		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
+		die "Unknown connection type: $conn";
 	}
 
 	return 0;
@@ -729,12 +726,10 @@ sub decrypt_wrap($$) {
 		$gpg->secretkey($dir_prf->{CryptData});
 		$gpg->debug($dir_prf->{Debug});
 
-		open(IN, "< $file")
-			or (myprint(P_ERROR, "Can't open file $file for reading: $!\n") and die);
+		open(IN, "< $file") or die "Can't open file $file for reading: $!";
 		my($data) = $gpg->decrypt([<IN>]);
 		close(IN);
-		open(OUT, "> $file2")
-			or (myprint(P_ERROR, "Can't open file $file2 for writing: $!\n") and die);
+		open(OUT, "> $file2") or die "Can't open file $file2 for writing: $!";
 		print OUT $data;
 		close(OUT);
 	}
@@ -766,12 +761,10 @@ sub encrypt_wrap($$) {
 		$gpg->encryptsafe(0);
 		$gpg->debug($dir_prf->{Debug});
 
-		open(IN, "< $dir_prf->{LocalDir}/$file")
-			or (myprint(P_ERROR, "Can't open file $file for reading: $!\n") and die);
+		open(IN, "< $dir_prf->{LocalDir}/$file") or die "Can't open file $file for reading: $!";
 		my($cleartext) = join('', <IN>);
 		close(IN);
-		open(OUT, "> $dir_prf->{LocalDir}/$file2")
-			or (myprint(P_ERROR, "Can't open file $file2 for writing: $!\n") and die);
+		open(OUT, "> $dir_prf->{LocalDir}/$file2") or die "Can't open file $file2 for writing: $!";
 		foreach my $line ($gpg->encrypt($cleartext, $recipient, -sign)) {
 			print OUT $line."\n";
 		}
@@ -790,7 +783,7 @@ sub main($) {
 	my($prog,$path) = get_progpath();
 
 	if($#argv == -1) {
-		myprint(P_ERROR, "usage: $prog path_to_sndrcv.ini\n") and die;
+		die "usage: $prog path_to_sndrcv.ini";
 	}
 
 	my($config) = get_config($argv[0]);
@@ -803,7 +796,7 @@ sub main($) {
 			open(SAVEOUT, ">&STDOUT");
 			open(SAVEERR, ">&STDERR");
 			open(STDOUT, ">> $config->{$key}->{LogFile}")
-				or (myprint(P_ERROR, "Can't open Log File $config->{$key}->{LogFile}: $!\n") and die);
+				or die "Can't open Log File $config->{$key}->{LogFile}: $!";
 			open(STDERR, ">&STDOUT");
 		}
 
@@ -811,11 +804,11 @@ sub main($) {
 			my($conn) = connect_wrap($config->{$key});
 	
 			if(download_loop($config->{$key}, $conn, $date) != 0) {
-				myprint(P_ERROR, "Error in download loop!\n") and die;
+				die "Error in download loop!";
 			}
 	
 			if(upload_loop($config->{$key}, $conn, $date) != 0) {
-				myprint(P_ERROR, "Error in upload loop!\n") and die;
+				die "Error in upload loop!";
 			}
 
 			disconnect_wrap($config->{$key}, $conn);
