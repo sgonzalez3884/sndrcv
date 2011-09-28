@@ -11,7 +11,7 @@ use warnings;
 
 use constant {
         PROG    => 'sndrcv',
-        VER     => 20110427
+        VER     => 20110504
 };
 
 use Net::SFTP;
@@ -55,7 +55,7 @@ my($verbosity) = P_PROG;	# Current verbosity level
 ########################################################################################################
 
 # myprint()		Conditionally print messages based on the current verbosity, and message level
-# 
+#
 # input parms		$level	Passed message severity level
 # 			@_	Variable lenght argument list parseable by printf
 #
@@ -171,7 +171,7 @@ sub validate_config($) {
 			foreach my $prf (sort(keys %{$config->{$conn}->{Download}})) {
 				# Required fields
 				foreach my $fld ("RemoteDir", "Regex", "LocalDir", "TempDir") {
-					if(!defined($config->{$conn}->{Download}->{$prf}->{$fld}) || 
+					if(!defined($config->{$conn}->{Download}->{$prf}->{$fld}) ||
 						$config->{$conn}->{Download}->{$prf}->{$fld} eq "") {
 						myprint(P_ERROR, "Missing required field $fld in Download profile $prf, Connection $conn!\n") and die;
 					}
@@ -232,7 +232,7 @@ sub validate_config($) {
 			foreach my $prf (sort(keys %{$config->{$conn}->{Upload}})) {
 				# Required fields
 				foreach my $fld ("RemoteDir", "Regex", "LocalDir", "TempDir") {
-					if(!defined($config->{$conn}->{Upload}->{$prf}->{$fld}) || 
+					if(!defined($config->{$conn}->{Upload}->{$prf}->{$fld}) ||
 						$config->{$conn}->{Upload}->{$prf}->{$fld} eq "") {
 						myprint(P_ERROR, "Missing required field $fld in Upload profile $prf, Connection $conn!\n") and die;
 					}
@@ -341,6 +341,35 @@ sub get_date() {
 
 }
 
+# get_filesize()	Returns a human-readable string of the specified file's size with unit
+#
+# input parms	full path to file
+#
+# returns	human-readable string of the specified file's size with unit
+
+sub get_filezize($) {
+        my($filename) = shift;
+
+        my($size) = (-s $filename);
+
+        my(@units) = ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB');
+
+        my($i) = 0;
+        while($size >= 1024) {
+                $size /= 1024;
+                $i++;
+        }
+
+        die "Overflow on get_filesize($filename)" if($#units < $i);
+        my($ret) = sprintf("%0.2f", $size);
+        $ret =~ s/0*$//;
+        $ret =~ s/\.$//;
+        $ret = $ret . ' ' . $units[$i];
+
+        return($ret);
+
+}
+
 # var_replace()	Replace wildcard values in a string with current date values
 #
 # Wildcards replaced:
@@ -422,6 +451,8 @@ sub download_loop($$$$) {
 				myprint(P_INFO, "Receiving '$file'...\n");
 				get_wrap($conn_prf, $conn, $file, $dir->{RemoteDir}, $dir->{TransferType});
 
+				my($size) = get_filesize($dir->{TempDir} . '/' . $file);
+
 				my($file2) = decrypt_wrap($dir, $file);
 
 				if($dir->{Debug} eq "0") {
@@ -431,12 +462,13 @@ sub download_loop($$$$) {
 						my($file3) = $file;
 						$file = $file2;
 						$file2 = $file3;
+
 					}
 					# file = Decypted file if encrypted, otherwise downloaded file
 					# file2 = Downloaded file if encrypted
 
 					myprint(P_INFO, "Copying file '$file' to '$dir->{LocalDir}'...\n");
-					copy($dir->{TempDir} . '/' . $file, $dir->{LocalDir} . '/') 
+					copy($dir->{TempDir} . '/' . $file, $dir->{LocalDir} . '/')
 						or (myprint(P_ERROR, "$!\n") and die);
 
 					foreach my $arcfile ($file, $file2) {
@@ -466,13 +498,13 @@ sub download_loop($$$$) {
 						myprint(P_INFO, "Removing file '$file' from server '$conn_prf->{Server}'...\n");
 						rm_wrap($conn_prf, $conn, $file, $dir->{RemoteDir});
 					}
-				
+
 				}
 
 				if($file2 ne "") {
-					push(@{ $email_data->{Message} }, ['D',$dir->{RemoteDir},$file2]);
+					push(@{ $email_data->{Message} }, ['D',$dir->{RemoteDir},$file2,$size]);
 				} else {
-					push(@{ $email_data->{Message} }, ['D',$dir->{RemoteDir},$file]);
+					push(@{ $email_data->{Message} }, ['D',$dir->{RemoteDir},$file,$size]);
 				}
 			}
 		} else {
@@ -544,7 +576,7 @@ sub upload_loop($$$$) {
 		}
 		mkpath($dir->{TempDir});
 		chdir($dir->{TempDir});
-	
+
 		myprint(P_INFO, "Getting file list for '$dir->{LocalDir}'.\n");
 		opendir(DIR, $dir->{LocalDir})
 			or (myprint(P_ERROR, "Can't open directory '$dir->{LocalDir}': $!\n") and die);
@@ -565,6 +597,8 @@ sub upload_loop($$$$) {
 				# file = Encrypted file if encrypted, otherwise file
 				# file2 = Original file if encrypted
 
+				my($size) = get_filesize($dir->{TempDir} . '/' . $file);
+
 				myprint(P_INFO, "Sending '$file'...\n");
 				put_wrap($conn_prf, $conn, $file, $dir->{LocalDir}, $dir->{RemoteDir}, $dir->{TransferType});
 
@@ -580,7 +614,7 @@ sub upload_loop($$$$) {
 								}
 
 								myprint(P_INFO, "Moving file '$arcfile' to '$dir->{ArchiveDir}/$newfile'...\n");
-								move($dir->{LocalDir} . '/' . $arcfile, $dir->{ArchiveDir} . '/' . $newfile) 
+								move($dir->{LocalDir} . '/' . $arcfile, $dir->{ArchiveDir} . '/' . $newfile)
 									or (myprint(P_ERROR, "$!\n") and die);
 							} else {
 								unlink($dir->{LocalDir} . '/' . $arcfile);
@@ -590,12 +624,12 @@ sub upload_loop($$$$) {
 				}
 
 				if($file2 ne "") {
-					push(@{ $email_data->{Message} }, ['U',$dir->{RemoteDir},$file2]);
+					push(@{ $email_data->{Message} }, ['U',$dir->{RemoteDir},$file2,$size]);
 				} else {
-					push(@{ $email_data->{Message} }, ['U',$dir->{RemoteDir},$file]);
+					push(@{ $email_data->{Message} }, ['U',$dir->{RemoteDir},$file,$size]);
 				}
 			}
-		
+
 		} else {
 			myprint(P_PROG, "No files matching /$dir->{Regex}/i in '$dir->{LocalDir}'.\n");
 		}
@@ -628,11 +662,11 @@ sub send_email($$) {
 		return 0;
 	}
 
-	$email->{Message} = "The following file transfers have completed on " . 
-		$conn_prf->{ConnType} . "://" . 
+	$email->{Message} = "The following file transfers have completed on " .
+		$conn_prf->{ConnType} . "://" .
 		$conn_prf->{User} . '@' . $conn_prf->{Server} . ':' .
 		$conn_prf->{Port} . "\n";
-	
+
 	my($type_l, $dir_l) = ('','');
 
 	foreach my $xfr (@xfrlog) {
@@ -650,10 +684,10 @@ sub send_email($$) {
 			$dir_l = $$xfr[1];
 		}
 
-		$email->{Message} .= "    $$xfr[2]\n";
+		$email->{Message} .= "    $$xfr[2] ($$xfr[3])\n";
 
 	}
-	
+
 	myprint(P_INFO, "Sending E-Mail Notification from $email->{From} to $email->{To}.\n");
 
 	if(!sendmail(%{ $email })) {
@@ -706,7 +740,7 @@ sub connect_wrap($) {
 			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
 			$conn = Net::SFTP->new(
 					$conn_prf->{Server},
-					user => $conn_prf->{User}, 
+					user => $conn_prf->{User},
 					password => $conn_prf->{AuthData},
 					debug => $conn_prf->{Debug},
 					ssh_args => [
@@ -717,9 +751,9 @@ sub connect_wrap($) {
 			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using IDENTITY...\n");
 			$conn = Net::SFTP->new(
 					$conn_prf->{Server},
-					user => $conn_prf->{User}, 
+					user => $conn_prf->{User},
 					debug => $conn_prf->{Debug},
-					ssh_args => [ 
+					ssh_args => [
 						identity_files => [ $conn_prf->{AuthData} ],
 						port => $conn_prf->{Port}
 					]
@@ -745,7 +779,7 @@ sub connect_wrap($) {
 		$conn->setopt(CURLOPT_USERPWD,$conn_prf->{User}.':'.$conn_prf->{AuthData});
 		$conn->setopt(CURLOPT_VERBOSE,$conn_prf->{Debug});
 		$conn->setopt(CURLOPT_PORT,$conn_prf->{Port});
-	
+
 		my($fileb);
 		open($fileb, ">", "/dev/null");
 		$conn->setopt(CURLOPT_WRITEDATA,$fileb);
@@ -775,7 +809,7 @@ sub disconnect_wrap($$) {
 	if($conn_prf->{ConnType} eq "sftp") {
 		undef $conn;
 	} elsif($conn_prf->{ConnType} eq "ftp") {
-		$conn->quit;	
+		$conn->quit;
 	} elsif($conn_prf->{ConnType} eq "ftps") {
 		undef $conn;
 	} else {
@@ -810,7 +844,7 @@ sub ls_wrap($$$) {
 	} elsif($conn =~ /^WWW::Curl/) {
 		#$conn->setopt(CURLOPT_FTPLISTONLY,1);
 		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/');
-		
+
 		my($response_body) = "";
 		open(my $fh, ">", \$response_body);
 			$conn->setopt(CURLOPT_WRITEDATA,$fh);
@@ -835,7 +869,7 @@ sub ls_wrap($$$) {
 			myprint(P_DEBUG5, "No response body when listing FTPS directory $dir\n");
 		}
 	} elsif($conn =~ /^LocalDir/) {
-		opendir(DIR, $dir) 
+		opendir(DIR, $dir)
 			or (myprint(P_ERROR, "Can't open directory $dir: $!\n") and die);
 		@list = readdir(DIR);
 		closedir(DIR)
@@ -990,7 +1024,7 @@ sub rm_wrap($$$$) {
 			$conn->setopt(CURLOPT_INFILE,$fileb);
 			my $retval = curl_wrap($conn);
 			# FIXME: We get an unable to retrieve file when trying to delete? Unsure why, but ignore... for now.
-			myprint(P_ERROR, "Error removing '$file': ".$conn->strerror($retval)." ($retval)\n") and 
+			myprint(P_ERROR, "Error removing '$file': ".$conn->strerror($retval)." ($retval)\n") and
 				die if($retval != 0 and $retval != 19);
 		close($fileb);
 		$conn->setopt(CURLOPT_CUSTOMREQUEST,"");
@@ -1109,7 +1143,7 @@ sub main($) {
 				or (myprint(P_ERROR, "Can't open Log File $config->{$key}->{LogFile}: $!\n") and die);
 			open(STDERR, ">&STDOUT");
 		}
-		
+
 		if($config->{$key}->{EmailList} ne "") {
 			my(@emaillist) = split(/,/, $config->{$key}->{EmailList});
 			$email_data->{From} = shift(@emaillist);
@@ -1119,11 +1153,11 @@ sub main($) {
 
 		if($config->{$key}->{Active} eq "1" or $test == 1) {
 			my($conn) = connect_wrap($config->{$key});
-	
+
 			if(download_loop($config->{$key}, $conn, $date, $email_data) != 0) {
 				myprint(P_ERROR, "Error in download loop!\n") and die;
 			}
-	
+
 			if(upload_loop($config->{$key}, $conn, $date, $email_data) != 0) {
 				myprint(P_ERROR, "Error in upload loop!\n") and die;
 			}
