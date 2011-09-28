@@ -5,6 +5,7 @@ use warnings;
 
 use Net::SFTP;
 use Net::FTP;
+use WWW::Curl::Easy;
 use Crypt::GPG;
 
 use File::Copy;
@@ -97,13 +98,13 @@ sub validate_config($) {
 
 		# Set default values
 		foreach my $fldval (
-					["User", ""],
-					["AuthType", "Password"],
-					["AuthData", ""],
-					["Verbosity", P_INFO],
-					["LogFile", ""],
-					["Active", "0"]) {
-			
+			["User", ""],
+			["AuthType", "Password"],
+			["AuthData", ""],
+			["Verbosity", P_INFO],
+			["LogFile", ""],
+			["Active", "0"]) {
+
 			if(!defined($config->{$conn}->{$fldval->[0]}) || $config->{$conn}->{$fldval->[0]} eq "") {
 				$config->{$conn}->{$fldval->[0]} = $fldval->[1];
 			}
@@ -115,24 +116,22 @@ sub validate_config($) {
 		}
 
 		# Check set values
-		if($config->{$conn}->{ConnType} ne "sftp" &&
-			$config->{$conn}->{ConnType} ne "ftp") {
-			myprint(P_ERROR, "Invalid ConnType $config->{$conn}->{ConnType} in Connection $conn\n") and die;
+		if((grep $config->{$conn}->{ConnType},("ftp","ftps","sftp")) == 0) {
+			myprint(P_ERROR, "Invalid ConnType '$config->{$conn}->{ConnType}' in Connection $conn\n") and die;
 		}
 
-		if($config->{$conn}->{AuthType} ne "Password" &&
-			$config->{$conn}->{AuthType} ne "Identity") {
-			myprint(P_ERROR, "Unknown AuthType $config->{$conn}->{AuthType} in Connection $conn\n") and die;
+		if((grep $config->{$conn}->{AuthType},("Password","Identity")) == 0) {
+			myprint(P_ERROR, "Unknown AuthType '$config->{$conn}->{AuthType}' in Connection $conn\n") and die;
 		}
 		if($config->{$conn}->{AuthType} eq "Identity" &&
 			$config->{$conn}->{ConnType} ne "sftp") {
-			myprint(P_ERROR, "AuthType $config->{$conn}->{AuthType} specified for non sftp Connection $conn\n") and die;
+			myprint(P_ERROR, "AuthType '$config->{$conn}->{AuthType}' specified for non sftp Connection $conn\n") and die;
 		}
 		if(!($config->{$conn}->{Verbosity} =~ /^(-1)|([1234567])$/)) {
-			myprint(P_ERROR, "Unknown Verbosity flag $config->{$conn}->{Verbosity} specified Connection $conn\n") and die;
+			myprint(P_ERROR, "Unknown Verbosity flag '$config->{$conn}->{Verbosity}' specified Connection $conn\n") and die;
 		}
 		if(!($config->{$conn}->{Active} =~ /^[01]$/)) {
-			myprint(P_ERROR, "Unknown Active flag $config->{$conn}->{Active} specified Connection $conn\n") and die;
+			myprint(P_ERROR, "Unknown Active flag '$config->{$conn}->{Active}' specified Connection $conn\n") and die;
 		}
 
 		if(defined($config->{$conn}->{Download})) {
@@ -148,39 +147,37 @@ sub validate_config($) {
 
 				# Set default values
 				foreach my $fldval (
-							["ArchiveDir", ""],
-							["ArchivePst", ""],
-							["CryptType", ""],
-							["CryptData", ""],
-							["TransferType","BINARY"],
-							["MakeList", "0"],
-							["Active", "0"],
-							["Debug", "0"]) {
+					["ArchiveDir", ""],
+					["ArchivePst", ""],
+					["CryptType", "None"],
+					["CryptData", ""],
+					["TransferType","BINARY"],
+					["MakeList", "0"],
+					["Active", "0"],
+					["Debug", "0"]) {
 
 					if(!defined($config->{$conn}->{Download}->{$prf}->{$fldval->[0]}) ||
 						$config->{$conn}->{Download}->{$prf}->{$fldval->[0]} eq "") {
 						$config->{$conn}->{Download}->{$prf}->{$fldval->[0]} = $fldval->[1];
 					}
 				}
-				
+
 				# Check set values
-				if($config->{$conn}->{Download}->{$prf}->{CryptType} ne "PGP" and
-					$config->{$conn}->{Download}->{$prf}->{CryptType} ne "") {
-					myprint(P_ERROR, "Unknown CryptType $config->{$conn}->{Download}->{$prf}->{CryptType} in Download profile $prf, Connection $conn\n") and die;
+				if((grep $config->{$conn}->{Download}->{$prf}->{CryptType},("PGP","None")) == 0) {
+					myprint(P_ERROR, "Unknown CryptType '$config->{$conn}->{Download}->{$prf}->{CryptType}' in Download profile $prf, Connection $conn\n") and die;
 				}
 				if($config->{$conn}->{Download}->{$prf}->{CryptType} eq "PGP" and
 					$config->{$conn}->{Download}->{$prf}->{CryptData} eq "") {
-					myprint(P_ERROR, "CryptType $config->{$conn}->{Download}->{$prf}->{CryptType} requires CryptData in Download profile $prf, Connection $conn\n") and die;
+					myprint(P_ERROR, "CryptType '$config->{$conn}->{Download}->{$prf}->{CryptType}' requires CryptData in Download profile $prf, Connection $conn\n") and die;
 				}
-				if($config->{$conn}->{Download}->{$prf}->{TransferType} ne "BINARY" and
-					$config->{$conn}->{Download}->{$prf}->{TransferType} ne "ASCII") {
-					myprint(P_ERROR, "Unknown TransferType flag $config->{$conn}->{Download}->{$prf}->{Transfertype} in Download profile $prf, Connection $conn\n") and die;
+				if((grep $config->{$conn}->{Download}->{$prf}->{TransferType},("BINARY","ASCII")) == 0) {
+					myprint(P_ERROR, "Unknown TransferType flag '$config->{$conn}->{Download}->{$prf}->{Transfertype}' in Download profile $prf, Connection $conn\n") and die;
 				}
 				if(!($config->{$conn}->{Download}->{$prf}->{MakeList} =~ /^[01]$/)) {
-					myprint(P_ERROR, "Unknown MakeList flag $config->{$conn}->{Download}->{$prf}->{MakeList} in Download profile $prf, Connection $conn\n") and die;
+					myprint(P_ERROR, "Unknown MakeList flag '$config->{$conn}->{Download}->{$prf}->{MakeList}' in Download profile $prf, Connection $conn\n") and die;
 				}
 				if(!($config->{$conn}->{Download}->{$prf}->{Debug} =~ /^[01]$/)) {
-					myprint(P_ERROR, "Unknown Debug flag $config->{$conn}->{Download}->{$prf}->{Debug} in Download profile $prf, Connection $conn\n") and die;
+					myprint(P_ERROR, "Unknown Debug flag '$config->{$conn}->{Download}->{$prf}->{Debug}' in Download profile $prf, Connection $conn\n") and die;
 				}
 			}
 		}
@@ -198,13 +195,13 @@ sub validate_config($) {
 
 				# Set default values
 				foreach my $fldval (
-							["ArchiveDir", ""],
-							["ArchivePst", ""],
-							["CryptType", ""],
-							["CryptData", ""],
-							["TransferType","BINARY"],
-							["Active", "0"],
-							["Debug", "0"]) {
+					["ArchiveDir", ""],
+					["ArchivePst", ""],
+					["CryptType", "None"],
+					["CryptData", ""],
+					["TransferType","BINARY"],
+					["Active", "0"],
+					["Debug", "0"]) {
 
 					if(!defined($config->{$conn}->{Upload}->{$prf}->{$fldval->[0]}) ||
 						$config->{$conn}->{Upload}->{$prf}->{$fldval->[0]} eq "") {
@@ -213,24 +210,22 @@ sub validate_config($) {
 				}
 
 				# Check set values
-				if($config->{$conn}->{Upload}->{$prf}->{CryptType} ne "PGP" and
-					$config->{$conn}->{Upload}->{$prf}->{CryptType} ne "") {
-					myprint(P_ERROR, "Unknown CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} in Upload profile $prf, Connection $conn\n") and die;
+				if((grep $config->{$conn}->{Upload}->{$prf}->{CryptType},("PGP","None")) == 0) {
+					myprint(P_ERROR, "Unknown CryptType '$config->{$conn}->{Upload}->{$prf}->{CryptType}' in Upload profile $prf, Connection $conn\n") and die;
 				}
 				if($config->{$conn}->{Upload}->{$prf}->{CryptType} eq "PGP") {
 					if($config->{$conn}->{Upload}->{$prf}->{CryptData} eq "") {
-						myprint(P_ERROR, "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires CryptData in Upload profile $prf, Connection $conn\n") and die;
+						myprint(P_ERROR, "CryptType '$config->{$conn}->{Upload}->{$prf}->{CryptType}' requires CryptData in Upload profile $prf, Connection $conn\n") and die;
 					} elsif(!($config->{$conn}->{Upload}->{$prf}->{CryptData}) =~ m/^[^,]+,[^,]+$/) {
-						myprint(P_ERROR, "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires 2 items in CryptData in Upload profile $prf, Connection $conn\n") and die;
+						myprint(P_ERROR, "CryptType '$config->{$conn}->{Upload}->{$prf}->{CryptType}' requires 2 items in CryptData in Upload profile $prf, Connection $conn\n") and die;
 					}
 
 				}
-				if($config->{$conn}->{Upload}->{$prf}->{TransferType} ne "BINARY" and
-					$config->{$conn}->{Upload}->{$prf}->{TransferType} ne "ASCII") {
-					myprint(P_ERROR, "Unknown TransferType flag $config->{$conn}->{Upload}->{$prf}->{Transfertype} in Upload profile $prf, Connection $conn\n") and die;
+				if((grep $config->{$conn}->{Upload}->{$prf}->{TransferType},("BINARY","ASCII")) == 0) {
+					myprint(P_ERROR, "Unknown TransferType flag '$config->{$conn}->{Upload}->{$prf}->{Transfertype}' in Upload profile $prf, Connection $conn\n") and die;
 				}
 				if(!($config->{$conn}->{Upload}->{$prf}->{Debug} =~ /^[01]$/)) {
-					myprint(P_ERROR, "Unknown Debug flag $config->{$conn}->{Upload}->{$prf}->{Debug} in Upload profile $prf, Connection $conn\n") and die;
+					myprint(P_ERROR, "Unknown Debug flag '$config->{$conn}->{Upload}->{$prf}->{Debug}' in Upload profile $prf, Connection $conn\n") and die;
 				}
 			}
 		}
@@ -351,19 +346,19 @@ sub download_loop($$$) {
 		}
 		mkpath($dir->{TempDir});
 		chdir($dir->{TempDir});
-	
+
 		myprint(P_INFO, "Getting file list for '$dir->{RemoteDir}'.\n");
-		my(@list) = grep { $_ =~ m/$dir->{Regex}/i } ls_wrap($conn, $dir->{RemoteDir});
+		my(@list) = grep { $_ =~ m/$dir->{Regex}/i } ls_wrap($conn_prf, $conn, $dir->{RemoteDir});
 
 		if($#list >= 0) {
 			myprint(P_PROG, "Downloading all files matching /$dir->{Regex}/i in '$dir->{RemoteDir}'.\n");
 			foreach my $file (@list) {
 				myprint(P_INFO, "Receiving '$file'...\n");
-				get_wrap($conn, $file, $dir->{RemoteDir}, $dir->{TransferType});
+				get_wrap($conn_prf, $conn, $file, $dir->{RemoteDir}, $dir->{TransferType});
 
 				my($file2) = decrypt_wrap($dir, $file);
 
-				if($conn_prf->{Debug} eq "0" and $dir->{Debug} eq "0") {
+				if($dir->{Debug} eq "0") {
 
 					if($file2 ne "") {
 						my($file3) = $file;
@@ -394,9 +389,14 @@ sub download_loop($$$) {
 					}
 				}
 
-				if($conn_prf->{Debug} eq "0" and $dir->{Debug} eq "0") {
-					myprint(P_INFO, "Removing file '$file' from server '$conn_prf->{Server}'...\n");
-					rm_wrap($conn, $file, $dir->{RemoteDir});
+				if($dir->{Debug} eq "0") {
+					if($file2 ne "") {
+						myprint(P_INFO, "Removing file '$file2' from server '$conn_prf->{Server}'...\n");
+						rm_wrap($conn_prf, $conn, $file2, $dir->{RemoteDir});
+					} else {
+						myprint(P_INFO, "Removing file '$file' from server '$conn_prf->{Server}'...\n");
+						rm_wrap($conn_prf, $conn, $file, $dir->{RemoteDir});
+					}
 				
 				}
 			}
@@ -405,7 +405,7 @@ sub download_loop($$$) {
 		}
 
 		if($dir->{MakeList} eq "1") {
-			my(@list) = grep { $_ =~ m/$dir->{Regex}/i } ls_wrap("LocalDir", $dir->{LocalDir});
+			my(@list) = grep { $_ =~ m/$dir->{Regex}/i } ls_wrap($conn_prf, "LocalDir", $dir->{LocalDir});
 			if($#list >= 0) {
 				open(OUT, "> " . $dir->{TempDir} . "/" . $key . ".lst")
 						or (myprint(P_ERROR, "Can't open file " . $dir->{TempDir} . "/" . $key . ".txt for writing: $!\n") and
@@ -417,7 +417,7 @@ sub download_loop($$$) {
 				}
 				close(OUT);
 
-				if($conn_prf->{Debug} eq "0" and $dir->{Debug} eq "0") {
+				if($dir->{Debug} eq "0") {
 					myprint(P_INFO, "Moving file '$key.lst' to '$dir->{LocalDir}'...\n");
 					move($dir->{TempDir} . '/' . $key . ".lst", $dir->{LocalDir} . '/')
 						or (myprint(P_ERROR, "$!\n") and die);
@@ -484,9 +484,9 @@ sub upload_loop($$$) {
 				}
 
 				myprint(P_INFO, "Sending '$file'...\n");
-				put_wrap($conn, $file, $dir->{LocalDir}, $dir->{RemoteDir}, $dir->{TransferType});
+				put_wrap($conn_prf, $conn, $file, $dir->{LocalDir}, $dir->{RemoteDir}, $dir->{TransferType});
 
-				if($conn_prf->{Debug} eq "0" and $dir->{Debug} eq "0") {
+				if($dir->{Debug} eq "0") {
 					foreach my $arcfile ($file, $file2) {
 						if($arcfile ne "") {
 							if($dir->{ArchiveDir} ne "") {
@@ -521,6 +521,31 @@ sub upload_loop($$$) {
 ########################################################################################################
 # Wrapper Subroutines
 ########################################################################################################
+
+# curl_wrap()	Wrapper for curl->perform retries 'unknown PASV reply (13)' errors
+#
+# input parms	$conn		Connection Object
+#
+# returns	$retval		Retun value from perform
+
+sub curl_wrap($) {
+	my($conn) = shift;
+	my($retval);
+	my($retry_max) = 5;
+
+	for(my($retry) = 1; $retry <= ($retry_max+1); $retry++) {
+		$retval = $conn->perform;
+
+		# Return if no error, or error is not 'unknown PASV reply (99)'
+		if($retval == 0 or $retval != 13) {
+			return $retval;
+		}
+		sleep 1; # Curl runs better if we sleep in-between performs?
+		myprint(P_DEBUG, "Recieved ".$conn->strerror($retval)." ($retval). Retry attempt $retry of $retry_max\n");
+	}
+
+	return $retval;
+}
 
 # connect_wrap()	Connects to specified server
 #
@@ -561,8 +586,23 @@ sub connect_wrap($) {
 			) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
 		$conn->login($conn_prf->{User}, $conn_prf->{AuthData})
 			or (myprint(P_ERROR, "Cannot login to $conn_prf->{Server}: %s\n", $conn->message) and die);
-		# FIXME: Does this need to be a configurable option?
-		$conn->binary;
+	} elsif($conn_prf->{ConnType} eq "ftps") {
+		myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using PASSWORD...\n");
+		$conn = new WWW::Curl::Easy;
+		$conn->setopt(CURLOPT_FTP_SSL,1);
+		$conn->setopt(CURLOPT_FTP_SSL_CCC,1);
+		$conn->setopt(CURLOPT_SSL_VERIFYPEER,0);
+		$conn->setopt(CURLOPT_FTP_USE_EPSV,0);
+		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server});
+		$conn->setopt(CURLOPT_USERPWD,$conn_prf->{User}.':'.$conn_prf->{AuthData});
+		$conn->setopt(CURLOPT_VERBOSE,$conn_prf->{Debug});
+	
+		my($fileb);
+		open($fileb, ">", "/dev/null");
+		$conn->setopt(CURLOPT_WRITEDATA,$fileb);
+		my $retval = curl_wrap($conn);
+		close($fileb);
+		myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: ".$conn->strerror($retval)." ($retval)\n") and die if($retval != 0);
 	} else {
 		myprint(P_ERROR, "Unknown ConnType $conn_prf->{ConnType}!\n") and die;
 	}
@@ -587,6 +627,8 @@ sub disconnect_wrap($$) {
 		undef $conn;
 	} elsif($conn_prf->{ConnType} eq "ftp") {
 		$conn->quit;	
+	} elsif($conn_prf->{ConnType} eq "ftps") {
+		undef $conn;
 	} else {
 		myprint(P_ERROR, "Unknown ConnType $conn_prf->{ConnType}!\n") and die;
 	}
@@ -595,12 +637,14 @@ sub disconnect_wrap($$) {
 
 # ls_wrap()	Get file list for specified directory via connection
 #
-# input parms	$conn	Connection Object
-# 		$dir	Directory to list
+# input parms	\%conn_prf	Connection Profile configuration values
+#		$conn		Connection Object
+# 		$dir		Directory to list
 #
 # returns	@list	Directory Listing
 
-sub ls_wrap($$) {
+sub ls_wrap($$$) {
+	my($conn_prf) = shift;
 	my($conn) = shift;
 	my($dir) = shift;
 	my(@list) = ();
@@ -613,6 +657,26 @@ sub ls_wrap($$) {
 		foreach my $item ($conn->ls($dir)) {
 			$item =~ s|^$dir[/\\]*||;
 			push @list, $item;
+		}
+	} elsif($conn =~ /^WWW::Curl/) {
+		$conn->setopt(CURLOPT_FTPLISTONLY,1);
+		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/');
+		
+		my($response_body);
+		open(STREAMOUT, ">", \$response_body);
+			$conn->setopt(CURLOPT_WRITEDATA,*STREAMOUT);
+			my $retval = curl_wrap($conn);
+			myprint(P_ERROR, "Can't list directory $dir: ".$conn->strerror($retval)."\n") and die if($retval != 0);
+		$conn->setopt(CURLOPT_FTPLISTONLY,0);
+
+		if(defined($response_body)) {
+			foreach my $line (split(/\n|\r/, $response_body)) {
+					chomp($line);
+					$line =~ s/^\s+//g;
+					$line =~ s/\s+$//g;
+					push(@list, $line) if($line ne "");
+			}
+			undef $response_body;
 		}
 	} elsif($conn =~ /^LocalDir/) {
 		opendir(DIR, $dir) 
@@ -633,14 +697,16 @@ sub ls_wrap($$) {
 
 # get_wrap()	Get specified file via connection
 #
-# input parms	$conn	Connection Object
-# 		$file	File to get
-# 		$dir	Directory file is located
+# input parms	\%conn_prf	Connection Profile configuration values
+# 		$conn		Connection Object
+# 		$file		File to get
+# 		$dir		Directory file is located
 #
-# returns		0 on success
-# 			1 on general failure
+# returns			0 on success
+# 				1 on general failure
 
-sub get_wrap($$$$) {
+sub get_wrap($$$$$) {
+	my($conn_prf) = shift;
 	my($conn) = shift;
 	my($file) = shift;
 	my($dir) = shift;
@@ -660,6 +726,21 @@ sub get_wrap($$$$) {
 
 		$conn->get($dir . '/' . $file, $file)
 			or (myprint(P_ERROR, "Error receiving '$file'\n") and die);
+	} elsif($conn =~ /^WWW::Curl/) {
+		if($type eq "ASCII") {
+			$conn->setopt(CURLOPT_TRANSFERTEXT,1);
+		} else {
+			$conn->setopt(CURLOPT_TRANSFERTEXT,0);
+		}
+		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/'.$file);
+		my($fileb);
+		open($fileb, "> $file");
+			$conn->setopt(CURLOPT_WRITEDATA,$fileb);
+			my $retval = curl_wrap($conn);
+			# FIXME: We get 'Transferred a partial file (18) when we upload/downloai with ASCII? ignore... for now.
+			myprint(P_ERROR, "Error receiving '$file': ".$conn->strerror($retval)." ($retval)\n") and
+				die if(($retval != 0 and $type == "BINARY") or ($retval != 0 and $retval != 18 and $type == "ASCII"));
+		close($fileb);
 	} else {
 		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
 	}
@@ -670,15 +751,17 @@ sub get_wrap($$$$) {
 
 # put_wrap()	Put specified file via connection
 #
-# input parms	$conn		Connection Object
+# input parms	\%conn_prf	Connection Profile configuration values
+#		$conn		Connection Object
 # 		$file		File to put
 # 		$dir		Directory file is located
 # 		$rmt_dir	Remote directory to put file
 #
-# returns		0 on success
-# 			1 on general failure
+# returns			0 on success
+# 				1 on general failure
 
-sub put_wrap($$$$$) {
+sub put_wrap($$$$$$) {
+	my($conn_prf) = shift;
 	my($conn) = shift;
 	my($file) = shift;
 	my($dir) = shift;
@@ -697,6 +780,23 @@ sub put_wrap($$$$$) {
 
 		$conn->put($dir . '/' . $file, $rmt_dir . '/' . $file)
 			or (myprint(P_ERROR, "Error sending '$file'\n") and die);
+	} elsif($conn =~ /^WWW::Curl/) {
+		if($type eq "ASCII") {
+			$conn->setopt(CURLOPT_TRANSFERTEXT,1);
+		} else {
+			$conn->setopt(CURLOPT_TRANSFERTEXT,0);
+		}
+		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$rmt_dir.'/'.$file);
+		$conn->setopt(CURLOPT_UPLOAD,1);
+		my($fileb);
+ 		open($fileb, "< $dir/$file");
+			$conn->setopt(CURLOPT_INFILE,$fileb);
+			my $retval = curl_wrap($conn);
+			# FIXME: We get 'Transferred a partial file (18) when we upload/downloai with ASCII? ignore... for now.
+			myprint(P_ERROR, "Error sending '$file': ".$conn->strerror($retval)." ($retval)\n") and
+				die if(($retval != 0 and $type == "BINARY") or ($retval != 0 and $retval != 18 and $type == "ASCII"));
+		close($fileb);
+		$conn->setopt(CURLOPT_UPLOAD,0);
 	} else {
 		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
 	}
@@ -707,14 +807,16 @@ sub put_wrap($$$$$) {
 
 # rm_wrap()	Remove specified file via connection
 #
-# input parms	$conn	Connection Object
-# 		$file	File to remove
-# 		$dir	Directory file is located
+# input parms	\%conn_prf	Connection Profile configuration values
+#		$conn		Connection Object
+# 		$file		File to remove
+# 		$dir		Directory file is located
 #
-# returns		0 on success
-# 			1 on general failure
+# returns			0 on success
+# 				1 on general failure
 
-sub rm_wrap($$$) {
+sub rm_wrap($$$$) {
+	my($conn_prf) = shift;
 	my($conn) = shift;
 	my($file) = shift;
 	my($dir) = shift;
@@ -723,6 +825,18 @@ sub rm_wrap($$$) {
 		$conn->do_remove($dir . '/' . $file);
 	} elsif($conn =~ /^Net::FTP/) {
 		$conn->delete($dir . '/' . $file);
+	} elsif($conn =~ /^WWW::Curl/) {
+		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/');
+		$conn->setopt(CURLOPT_CUSTOMREQUEST,"DELE $dir/$file");
+		my($fileb);
+		open($fileb, "< $dir/$file");
+			$conn->setopt(CURLOPT_INFILE,$fileb);
+			my $retval = curl_wrap($conn);
+			# FIXME: We get an unable to retrieve file when trying to delete? Unsure why, but ignore... for now.
+			myprint(P_ERROR, "Error removing '$file': ".$conn->strerror($retval)." ($retval)\n") and 
+				die if($retval != 0 and $retval != 19);
+		close($fileb);
+		$conn->setopt(CURLOPT_CUSTOMREQUEST,"");
 	} else {
 		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
 	}
@@ -820,7 +934,7 @@ sub main($) {
 
 	if($argv[0] eq "--test") {
 		$test = 1;
-		shift;
+		shift @argv;
 	}
 
 	my($config) = get_config($argv[0]);
