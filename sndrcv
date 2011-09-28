@@ -4,6 +4,8 @@ use strict;
 use warnings;
 
 use Net::SFTP;
+use Net::FTP;
+
 use File::Copy;
 use File::Path;
 use File::Basename;
@@ -112,7 +114,8 @@ sub validate_config($) {
 		}
 
 		# Check set values
-		if($config->{$conn}->{ConnType} ne "sftp") {
+		if($config->{$conn}->{ConnType} ne "sftp" &&
+			$config->{$conn}->{ConnType} ne "ftp") {
 			die "Invalid ConnType $config->{$conn}->{ConnType} in Connection $conn";
 		}
 
@@ -145,6 +148,7 @@ sub validate_config($) {
 				# Set default values
 				foreach my $fldval (
 							["ArchiveDir", ""],
+							["ArchivePst", ""],
 							["MakeList", "0"],
 							["Active", "0"],
 							["Debug", "0"]) {
@@ -179,6 +183,7 @@ sub validate_config($) {
 				# Set default values
 				foreach my $fldval (
 							["ArchiveDir", ""],
+							["ArchivePst", ""],
 							["Active", "0"],
 							["Debug", "0"]) {
 
@@ -303,6 +308,7 @@ sub download_loop($$$) {
 		$dir->{LocalDir} = var_replace($dir->{LocalDir}, $date);
 		$dir->{RemoteDir} = var_replace($dir->{RemoteDir}, $date);
 		$dir->{ArchiveDir} = var_replace($dir->{ArchiveDir}, $date);
+		$dir->{ArchivePst} = var_replace($dir->{ArchivePst}, $date);
 
 		mkpath($dir->{LocalDir});
 		mkpath($dir->{ArchiveDir});
@@ -326,9 +332,19 @@ sub download_loop($$$) {
 					}
 
 					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
-						myprint(P_INFO, "Moving file '$file' to '$dir->{ArchiveDir}'...\n");
-						move($dir->{TempDir} . '/' . $file, $dir->{ArchiveDir} . '/')
-							or die "$!";
+						if($dir->{ArchiveDir} ne "") {
+							my($newfile) = $file;
+							if($newfile =~ m/^(.*)([.][^.]*)$/) {
+								$newfile = $1 . $dir->{ArchivePst} . $2;
+							} else {
+								$newfile .= $dir->{ArchivePst};
+							}
+							myprint(P_INFO, "Moving file '$file' to '$dir->{ArchiveDir}/$newfile'...\n");
+							move($dir->{TempDir} . '/' . $file, $dir->{ArchiveDir} . '/' . $newfile)
+								or die "$!";
+						} else {
+							unlink($dir->{TempDir} . '/' . $file);
+						}
 					}
 
 					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
@@ -389,6 +405,8 @@ sub upload_loop($$$) {
 			next;
 		}
 
+		mkpath($dir->{LocalDir});
+		mkpath($dir->{ArchiveDir});
 		mkpath($dir->{TempDir});
 		chdir($dir->{TempDir});
 	
@@ -396,6 +414,7 @@ sub upload_loop($$$) {
 		$dir->{LocalDir} = var_replace($dir->{LocalDir}, $date);
 		$dir->{RemoteDir} = var_replace($dir->{RemoteDir}, $date);
 		$dir->{ArchiveDir} = var_replace($dir->{ArchiveDir}, $date);
+		$dir->{ArchivePst} = var_replace($dir->{ArchivePst}, $date);
 
 		myprint(P_INFO, "Getting file list for '$dir->{LocalDir}'.\n");
 		opendir(DIR, $dir->{LocalDir}) or die "Can't open directory '$dir->{LocalDir}': $!";
@@ -406,16 +425,24 @@ sub upload_loop($$$) {
 			myprint(P_PROG, "Uploading all files matching /$dir->{Regex}/ in '$dir->{LocalDir}'.\n");
 			foreach my $file (@list) {
 				if($file =~ m/$dir->{Regex}/i) {
-					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
-						myprint(P_INFO, "Sending '$file'...\n");
-						put_wrap($conn, $file, $dir->{LocalDir}, $dir->{RemoteDir});
-					}
+					myprint(P_INFO, "Sending '$file'...\n");
+					put_wrap($conn, $file, $dir->{LocalDir}, $dir->{RemoteDir});
 
 					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
-						myprint(P_INFO, "Moving file '$file' to '$dir->{ArchiveDir}'...\n");
-						mkpath($dir->{ArchiveDir});
-						move($dir->{LocalDir} . '/' . $file, $dir->{ArchiveDir} . '/')
+						if($dir->{ArchiveDir} ne "") {
+							my($newfile) = $file;
+							if($newfile =~ m/^(.*)([.][^.]*)$/) {
+								$newfile = $1 . $dir->{ArchivePst} . $2;
+							} else {
+								$newfile .= $dir->{ArchivePst};
+							}
+
+							myprint(P_INFO, "Moving file '$file' to '$dir->{ArchiveDir}/$newfile'...\n");
+							move($dir->{LocalDir} . '/' . $file, $dir->{ArchiveDir} . '/' . $newfile)
 							or die "$!";
+						} else {
+							unlink($dir->{TempDir} . '/' . $file);
+						}
 					}
 				}
 			}
@@ -448,7 +475,7 @@ sub connect_wrap($) {
 					user => $conn_info->{User}, 
 					password => $conn_info->{AuthData},
 					debug => $conn_info->{Debug}
-				) or die "Cannot connect to $conn_info->{Server}: $!\n\n";
+				) or die "Cannot connect to $conn_info->{Server}: $!";
 		} else {
 			myprint(P_PROG, "Logging in to server '$conn_info->{Server}' as '$conn_info->{User}' using IDENTITY...\n");
 			$conn = Net::SFTP->new(
@@ -458,8 +485,17 @@ sub connect_wrap($) {
 					ssh_args => [ 
 						identity_files => [ $conn_info->{AuthData} ]
 					]
-				) or die "Cannot connect to $conn_info->{Server}: $!\n\n";
+				) or die "Cannot connect to $conn_info->{Server}: $!";
 		}
+	} elsif($conn_info->{ConnType} eq "ftp") {
+		$conn = Net::FTP->new(
+				$conn_info->{Server},
+				Debug => $conn_info->{Debug}
+			) or die "Cannot connect to $conn_info->{Server}: $!";
+		$conn->login($conn_info->{User}, $conn_info->{AuthData})
+			or die "Cannot login to $conn_info->{Server}: ", $conn->message;
+		# FIXME: Does this need to be a configurable option?
+		$conn->binary;
 	} else {
 		die "Unknown ConnType $conn_info->{ConnType}!";
 	}
@@ -482,6 +518,8 @@ sub disconnect_wrap($$) {
 	myprint(P_PROG, "Disconnecting from server '$conn_info->{Server}'...\n");
 	if($conn_info->{ConnType} eq "sftp") {
 		undef $conn;
+	} elsif($conn_info->{ConnType} eq "ftp") {
+		$conn->quit;	
 	} else {
 		die "Unknown ConnType $conn_info->{ConnType}!";
 	}
@@ -504,6 +542,8 @@ sub ls_wrap($$) {
 		foreach my $item ($conn->ls($dir)) {
 			push @list, $item->{filename};
 		}
+	} elsif($conn =~ /^Net::FTP/) {
+		@list = $conn->ls($dir);
 	} elsif($conn =~ /^LocalDir/) {
 		opendir(DIR, $dir)
 			or die "Can't open directory $dir: $!";
@@ -533,10 +573,12 @@ sub get_wrap($$$) {
 	my($dir) = shift;
 
 	if($conn =~ /^Net::SFTP/) {
-		$conn->get($dir . '/' . $file,
-			$file);
+		$conn->get($dir . '/' . $file, $file);
 		die "Error receiving '$file'"
 			unless(-e $file);
+	} elsif($conn =~ /^Net::FTP/) {
+		$conn->get($dir . '/' . $file, $file)
+			or die "Error receiving '$file'"
 	} else {
 		die "Unknown connection type: $conn";
 	}
@@ -564,6 +606,9 @@ sub put_wrap($$$$) {
 	if($conn =~ /^Net::SFTP/) {
 		$conn->put($dir . '/' . $file, $rmt_dir . '/' . $file)
 			or die "Error sending '$file'";
+	} elsif($conn =~ /^Net::FTP/) {
+		$conn->put($dir . '/' . $file, $file)
+			or die "Error sending '$file'"
 	} else {
 		die "Unknown connection type: $conn";
 	}
@@ -588,6 +633,8 @@ sub rm_wrap($$$) {
 
 	if($conn =~ /^Net::SFTP/) {
 		$conn->do_remove($dir . '/' . $file);
+	} elsif($conn =~ /^Net::FTP/) {
+		$conn->delete($dir . '/' . $file);
 	} else {
 		die "Unknown connection type: $conn";
 	}
