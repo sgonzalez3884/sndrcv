@@ -161,6 +161,8 @@ sub validate_config($) {
 					["CryptData", ""],
 					["TransferType","BINARY"],
 					["MakeList", "0"],
+					["ListName", ""],
+					["Delete", "1"],
 					["Active", "0"],
 					["Debug", "0"]) {
 
@@ -186,6 +188,10 @@ sub validate_config($) {
 				}
 				if(!($config->{$conn}->{Download}->{$prf}->{Debug} =~ /^[01]$/)) {
 					myprint(P_ERROR, "Unknown Debug flag '$config->{$conn}->{Download}->{$prf}->{Debug}' in Download profile $prf, Connection $conn\n") and die;
+				}
+				if($config->{$conn}->{Download}->{$prf}->{MakeList} == 1 and
+					$config->{$conn}->{Download}->{$prf}->{ListName} eq "") {
+					$config->{$conn}->{Download}->{$prf}->{ListName} = $prf.".lst";
 				}
 			}
 		}
@@ -409,7 +415,7 @@ sub download_loop($$$) {
 					}
 				}
 
-				if($dir->{Debug} eq "0") {
+				if($dir->{Debug} eq "0" and $dir->{Delete} eq "1") {
 					if($file2 ne "") {
 						myprint(P_INFO, "Removing file '$file2' from server '$conn_prf->{Server}'...\n");
 						rm_wrap($conn_prf, $conn, $file2, $dir->{RemoteDir});
@@ -425,12 +431,12 @@ sub download_loop($$$) {
 		}
 
 		if($dir->{MakeList} eq "1") {
-			myprint(P_INFO, "Creating new file list '".$key.".txt'\n");
+			myprint(P_INFO, "Creating new file list '".$dir->{ListName}."'\n");
 
 			my(@list) = grep { $_ =~ m/$dir->{Regex}/i } ls_wrap($conn_prf, "LocalDir", $dir->{LocalDir});
 			if($#list >= 0) {
-				open(OUT, "> " . $dir->{TempDir} . "/" . $key . ".lst")
-						or (myprint(P_ERROR, "Can't open file " . $dir->{TempDir} . "/" . $key . ".txt for writing: $!\n") and
+				open(OUT, "> " . $dir->{TempDir} . "/" . $dir->{ListName})
+						or (myprint(P_ERROR, "Can't open file '" . $dir->{TempDir} . "/" . $dir->{ListName} . "' for writing: $!\n") and
 						die);
 				foreach my $file (@list) {
 					if($file =~ m/$dir->{Regex}/i) {
@@ -440,8 +446,8 @@ sub download_loop($$$) {
 				close(OUT);
 
 				if($dir->{Debug} eq "0") {
-					myprint(P_INFO, "Moving file '$key.lst' to '$dir->{LocalDir}'...\n");
-					move($dir->{TempDir} . '/' . $key . ".lst", $dir->{LocalDir} . '/')
+					myprint(P_INFO, "Moving file '".$dir->{ListName}."' to '$dir->{LocalDir}'...\n");
+					move($dir->{TempDir} . '/' . $dir->{ListName}, $dir->{LocalDir} . '/')
 						or (myprint(P_ERROR, "$!\n") and die);
 				}
 			}
