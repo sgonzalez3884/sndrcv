@@ -662,12 +662,13 @@ sub ls_wrap($$$) {
 		$conn->setopt(CURLOPT_FTPLISTONLY,1);
 		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/');
 		
-		my($response_body);
-		open(STREAMOUT, ">", \$response_body);
-			$conn->setopt(CURLOPT_WRITEDATA,*STREAMOUT);
+		my($response_body) = "";
+		open(my $fh, ">", \$response_body);
+			$conn->setopt(CURLOPT_WRITEDATA,$fh);
 			my $retval = curl_wrap($conn);
 			myprint(P_ERROR, "Can't list directory $dir: ".$conn->strerror($retval)."\n") and die if($retval != 0);
 		$conn->setopt(CURLOPT_FTPLISTONLY,0);
+		close($fh);
 
 		if(defined($response_body)) {
 			foreach my $line (split(/\n|\r/, $response_body)) {
@@ -739,7 +740,7 @@ sub get_wrap($$$$$) {
 			my $retval = curl_wrap($conn);
 			# FIXME: We get 'Transferred a partial file (18) when we upload/downloai with ASCII? ignore... for now.
 			myprint(P_ERROR, "Error receiving '$file': ".$conn->strerror($retval)." ($retval)\n") and
-				die if(($retval != 0 and $type == "BINARY") or ($retval != 0 and $retval != 18 and $type == "ASCII"));
+				die if(($retval != 0 and $type eq "BINARY") or ($retval != 0 and $retval != 18 and $type eq "ASCII"));
 		close($fileb);
 	} else {
 		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
@@ -794,7 +795,7 @@ sub put_wrap($$$$$$) {
 			my $retval = curl_wrap($conn);
 			# FIXME: We get 'Transferred a partial file (18) when we upload/downloai with ASCII? ignore... for now.
 			myprint(P_ERROR, "Error sending '$file': ".$conn->strerror($retval)." ($retval)\n") and
-				die if(($retval != 0 and $type == "BINARY") or ($retval != 0 and $retval != 18 and $type == "ASCII"));
+				die if(($retval != 0 and $type eq "BINARY") or ($retval != 0 and $retval != 18 and $type eq "ASCII"));
 		close($fileb);
 		$conn->setopt(CURLOPT_UPLOAD,0);
 	} else {
