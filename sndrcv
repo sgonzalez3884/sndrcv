@@ -1,5 +1,11 @@
 #!/usr/bin/perl -w
 
+# TODO: Add 'stateful' option to track and not re-down/upload already down/uploaded files (MSPCMS, Aetna)
+# TODO: Add LIST regex option for cases where NLST doesn't work (Aetna)
+# TODO: Add wildcard for ARCHIVEDIR that expands to ARCHIVEDIR, to simplfy archivedir setup
+# TODO: Add post-processing for zipfiles
+# TODO: Formalize post-processing (download) and pre-processing (upload) configuration?
+
 use strict;
 use warnings;
 
@@ -233,12 +239,12 @@ sub validate_config($) {
 		}
 
 		# Determine Port value when set to Auto
-		if($config->{$conn}->{Port} eq 0) {
-			if($config->{$conn}->{ConnType} == "ftp") {
+		if($config->{$conn}->{Port} == 0) {
+			if($config->{$conn}->{ConnType} eq "ftp") {
 				$config->{$conn}->{Port} = 21;
-			} elsif($config->{$conn}->{ConnType} == "ftps") {
+			} elsif($config->{$conn}->{ConnType} eq "ftps") {
 				$config->{$conn}->{Port} = 21;
-			} elsif($config->{$conn}->{ConnType} == "sftp") {
+			} elsif($config->{$conn}->{ConnType} eq "sftp") {
 				$config->{$conn}->{Port} = 22;
 			}
 		}
@@ -419,6 +425,8 @@ sub download_loop($$$) {
 		}
 
 		if($dir->{MakeList} eq "1") {
+			myprint(P_INFO, "Creating new file list '".$key.".txt'\n");
+
 			my(@list) = grep { $_ =~ m/$dir->{Regex}/i } ls_wrap($conn_prf, "LocalDir", $dir->{LocalDir});
 			if($#list >= 0) {
 				open(OUT, "> " . $dir->{TempDir} . "/" . $key . ".lst")
@@ -679,7 +687,7 @@ sub ls_wrap($$$) {
 			push @list, $item;
 		}
 	} elsif($conn =~ /^WWW::Curl/) {
-		$conn->setopt(CURLOPT_FTPLISTONLY,1);
+		#$conn->setopt(CURLOPT_FTPLISTONLY,1);
 		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/');
 		
 		my($response_body) = "";
@@ -687,17 +695,23 @@ sub ls_wrap($$$) {
 			$conn->setopt(CURLOPT_WRITEDATA,$fh);
 			my $retval = curl_wrap($conn);
 			myprint(P_ERROR, "Can't list directory $dir: ".$conn->strerror($retval)."\n") and die if($retval != 0);
-		$conn->setopt(CURLOPT_FTPLISTONLY,0);
+			#$conn->setopt(CURLOPT_FTPLISTONLY,0);
 		close($fh);
 
 		if(defined($response_body)) {
+			myprint(P_DEBUG5, "Response body when listing FTPS directory $dir:\n$response_body\n");
 			foreach my $line (split(/\n|\r/, $response_body)) {
 					chomp($line);
-					$line =~ s/^\s+//g;
-					$line =~ s/\s+$//g;
-					push(@list, $line) if($line ne "");
+					if(!($line =~ m/total\s*\d*$/)) {
+						$line =~ s/^\s+//g;
+						$line =~ s/\s+$//g;
+						$line =~ s/^.*[A-Z][a-z]{2}\s{1,2}\d{1,2}\s+\d{1,2}:\d{2}\s+//;
+						push(@list, $line) if($line ne "");
+					}
 			}
 			undef $response_body;
+		} else {
+			myprint(P_DEBUG5, "No response body when listing FTPS directory $dir\n");
 		}
 	} elsif($conn =~ /^LocalDir/) {
 		opendir(DIR, $dir) 
@@ -709,6 +723,7 @@ sub ls_wrap($$$) {
 		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
 	}
 
+	myprint(P_DEBUG5, "List Entries ($#list)\n");
 	foreach my $item (@list) {
 		myprint(P_DEBUG5, "List Entry: '$item'\n");
 	}
