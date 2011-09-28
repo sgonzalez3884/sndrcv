@@ -405,17 +405,17 @@ sub upload_loop($$$) {
 			next;
 		}
 
-		mkpath($dir->{LocalDir});
-		mkpath($dir->{ArchiveDir});
-		mkpath($dir->{TempDir});
-		chdir($dir->{TempDir});
-	
 		# Replace %Variables%
 		$dir->{LocalDir} = var_replace($dir->{LocalDir}, $date);
 		$dir->{RemoteDir} = var_replace($dir->{RemoteDir}, $date);
 		$dir->{ArchiveDir} = var_replace($dir->{ArchiveDir}, $date);
 		$dir->{ArchivePst} = var_replace($dir->{ArchivePst}, $date);
 
+		mkpath($dir->{LocalDir});
+		mkpath($dir->{ArchiveDir});
+		mkpath($dir->{TempDir});
+		chdir($dir->{TempDir});
+	
 		myprint(P_INFO, "Getting file list for '$dir->{LocalDir}'.\n");
 		opendir(DIR, $dir->{LocalDir}) or die "Can't open directory '$dir->{LocalDir}': $!";
 		my(@list) = grep { -f $dir->{LocalDir} . "/" . $_ && /$dir->{Regex}/ } readdir(DIR);
