@@ -812,9 +812,15 @@ sub encrypt_wrap($$) {
 sub main($) {
 	my(@argv) = @{(shift)};
 	my($prog,$path) = get_progpath();
+	my($test) = 0;
 
-	if($#argv == -1) {
-		myprint(P_ERROR, "usage: $prog path_to_sndrcv.ini\n") and die;
+	if($#argv < 0 || $#argv > 1 || ($#argv == 0 && $argv[0] eq "--test")) {
+		myprint(P_ERROR, "usage: $prog [--test] path_to_sndrcv.ini\n") and die;
+	}
+
+	if($argv[0] eq "--test") {
+		$test = 1;
+		shift;
 	}
 
 	my($config) = get_config($argv[0]);
@@ -831,7 +837,7 @@ sub main($) {
 			open(STDERR, ">&STDOUT");
 		}
 
-		if($config->{$key}->{Active} eq "1") {
+		if($config->{$key}->{Active} eq "1" or $test == 1) {
 			my($conn) = connect_wrap($config->{$key});
 	
 			if(download_loop($config->{$key}, $conn, $date) != 0) {
