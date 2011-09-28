@@ -846,7 +846,7 @@ sub ls_wrap($$$) {
 	my(@list) = ();
 
 	if($conn =~ /^Net::SFTP::Foreign/) {
-		foreach my $item ($conn->ls($dir)) {
+		foreach my $item (@{$conn->ls($dir)}) {
 			push @list, $item->{filename};
 		}
 	} elsif($conn =~ /^Net::FTP/) {
