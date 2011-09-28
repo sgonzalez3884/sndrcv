@@ -5,6 +5,7 @@ use warnings;
 
 use Net::SFTP;
 use Net::FTP;
+use Crypt::GPG;
 
 use File::Copy;
 use File::Path;
@@ -149,6 +150,8 @@ sub validate_config($) {
 				foreach my $fldval (
 							["ArchiveDir", ""],
 							["ArchivePst", ""],
+							["CryptType", ""],
+							["CryptData", ""],
 							["MakeList", "0"],
 							["Active", "0"],
 							["Debug", "0"]) {
@@ -160,6 +163,14 @@ sub validate_config($) {
 				}
 				
 				# Check set values
+				if($config->{$conn}->{Download}->{$prf}->{CryptType} ne "PGP" and
+					$config->{$conn}->{Download}->{$prf}->{CryptType} ne "") {
+					die "Unknown CryptType $config->{$conn}->{Download}->{$prf}->{CryptType} in Download profile $prf, Connection $conn";
+				}
+				if($config->{$conn}->{Download}->{$prf}->{CryptType} eq "PGP" and
+					$config->{$conn}->{Download}->{$prf}->{CryptData} eq "") {
+					die "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires CryptData in Download profile $prf, Connection $conn";
+				}
 				if(!($config->{$conn}->{Download}->{$prf}->{MakeList} =~ /^[01]$/)) {
 					die "Unknown MakeList flag $config->{$conn}->{Download}->{$prf}->{MakeList} in Download profile $prf, Connection $conn";
 				}
@@ -184,6 +195,8 @@ sub validate_config($) {
 				foreach my $fldval (
 							["ArchiveDir", ""],
 							["ArchivePst", ""],
+							["CryptType", ""],
+							["CryptData", ""],
 							["Active", "0"],
 							["Debug", "0"]) {
 
@@ -194,6 +207,18 @@ sub validate_config($) {
 				}
 
 				# Check set values
+				if($config->{$conn}->{Upload}->{$prf}->{CryptType} ne "PGP" and
+					$config->{$conn}->{Upload}->{$prf}->{CryptType} ne "") {
+					die "Unknown CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} in Upload profile $prf, Connection $conn";
+				}
+				if($config->{$conn}->{Upload}->{$prf}->{CryptType} eq "PGP") {
+					if($config->{$conn}->{Upload}->{$prf}->{CryptData} eq "") {
+						die "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires CryptData in Upload profile $prf, Connection $conn";
+					} elsif(!($config->{$conn}->{Upload}->{$prf}->{CryptData}) =~ m/^[^,]+,[^,]+$/) {
+						die "CryptType $config->{$conn}->{Upload}->{$prf}->{CryptType} requires 2 items in CryptData in Upload profile $prf, Connection $conn";
+					}
+
+				}
 				if(!($config->{$conn}->{Upload}->{$prf}->{Debug} =~ /^[01]$/)) {
 					die "Unknown Debug flag $config->{$conn}->{Upload}->{$prf}->{Debug} in Upload profile $prf, Connection $conn";
 				}
@@ -284,7 +309,7 @@ sub var_replace($$) {
 
 # download_loop()	Loop through download directory profiles, downloading whatever matches
 #
-# input parms		\%conn_info	Connection configuration values
+# input parms		\%conn_prf	Connection Profile configuration values
 # 			$conn		Connection Object
 # 			\@date		Current date
 #
@@ -292,12 +317,12 @@ sub var_replace($$) {
 # 			1 on general failure
 
 sub download_loop($$$) {
-	my($conn_info) = shift;
+	my($conn_prf) = shift;
 	my($conn) = shift;
 	my($date) = shift;
 
-	foreach my $key (keys %{$conn_info->{Download}}) {
-		my($dir) = $conn_info->{Download}->{$key};
+	foreach my $key (keys %{$conn_prf->{Download}}) {
+		my($dir) = $conn_prf->{Download}->{$key};
 
 		if($dir->{Active} eq "0") {
 			myprint(P_INFO, "Download profile $key is Inactive.\n");
@@ -316,49 +341,59 @@ sub download_loop($$$) {
 		chdir($dir->{TempDir});
 	
 		myprint(P_INFO, "Getting file list for '$dir->{RemoteDir}'.\n");
-		my(@list) = grep { $_ =~ m/$dir->{Regex}/ } ls_wrap($conn, $dir->{RemoteDir});
+		my(@list) = grep { $_ =~ m/$dir->{Regex}/i } ls_wrap($conn, $dir->{RemoteDir});
 
 		if($#list >= 0) {
-			myprint(P_PROG, "Downloading all files matching /$dir->{Regex}/ in '$dir->{RemoteDir}'.\n");
+			myprint(P_PROG, "Downloading all files matching /$dir->{Regex}/i in '$dir->{RemoteDir}'.\n");
 			foreach my $file (@list) {
-				if($file =~ m/$dir->{Regex}/i) {
-					myprint(P_INFO, "Receiving '$file'...\n");
-					get_wrap($conn, $file, $dir->{RemoteDir});
-	
-					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
-						myprint(P_INFO, "Copying file '$file' to '$dir->{LocalDir}'...\n");
-						copy($dir->{TempDir} . '/' . $file, $dir->{LocalDir} . '/')
-							or die "$!";
+				myprint(P_INFO, "Receiving '$file'...\n");
+				get_wrap($conn, $file, $dir->{RemoteDir});
+
+				my($file2) = decrypt_wrap($dir, $file);
+
+				if($conn_prf->{Debug} eq "0" and $dir->{Debug} eq "0") {
+
+					if($file2 ne "") {
+						my($file3) = $file;
+						$file = $file2;
+						$file2 = $file3;
 					}
 
-					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
-						if($dir->{ArchiveDir} ne "") {
-							my($newfile) = $file;
-							if($newfile =~ m/^(.*)([.][^.]*)$/) {
-								$newfile = $1 . $dir->{ArchivePst} . $2;
+					myprint(P_INFO, "Copying file '$file' to '$dir->{LocalDir}'...\n");
+					copy($dir->{TempDir} . '/' . $file, $dir->{LocalDir} . '/')
+						or die "$!";
+
+					foreach my $arcfile ($file, $file2) {
+						if($arcfile ne "") {
+							if($dir->{ArchiveDir} ne "") {
+								my($newfile) = $arcfile;
+								if($newfile =~ m/^(.*)([.][^.]*)$/) {
+									$newfile = $1 . $dir->{ArchivePst} . $2;
+								} else {
+									$newfile .= $dir->{ArchivePst};
+								}
+								myprint(P_INFO, "Moving file '$arcfile' to '$dir->{ArchiveDir}/$newfile'...\n");
+								move($dir->{TempDir} . '/' . $arcfile, $dir->{ArchiveDir} . '/' . $newfile)
+									or die "$!";
 							} else {
-								$newfile .= $dir->{ArchivePst};
+								unlink($dir->{TempDir} . '/' . $arcfile);
 							}
-							myprint(P_INFO, "Moving file '$file' to '$dir->{ArchiveDir}/$newfile'...\n");
-							move($dir->{TempDir} . '/' . $file, $dir->{ArchiveDir} . '/' . $newfile)
-								or die "$!";
-						} else {
-							unlink($dir->{TempDir} . '/' . $file);
 						}
 					}
+				}
 
-					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
-						myprint(P_INFO, "Removing file '$file' from server '$conn_info->{Server}'...\n");
-						rm_wrap($conn, $file, $dir->{RemoteDir});
-					}
+				if($conn_prf->{Debug} eq "0" and $dir->{Debug} eq "0") {
+					myprint(P_INFO, "Removing file '$file' from server '$conn_prf->{Server}'...\n");
+					rm_wrap($conn, $file, $dir->{RemoteDir});
+				
 				}
 			}
 		} else {
-			myprint(P_PROG, "No files matching /$dir->{Regex}/ in '$dir->{RemoteDir}'.\n");
+			myprint(P_PROG, "No files matching /$dir->{Regex}/i in '$dir->{RemoteDir}'.\n");
 		}
 
 		if($dir->{MakeList} eq "1") {
-			my(@list) = grep { $_ =~ m/$dir->{Regex}/ } ls_wrap("LocalDir", $dir->{LocalDir});
+			my(@list) = grep { $_ =~ m/$dir->{Regex}/i } ls_wrap("LocalDir", $dir->{LocalDir});
 			if($#list >= 0) {
 				open(OUT, "> " . $dir->{TempDir} . "/" . $key . ".lst")
 					or die "Can't open file " . $dir->{TempDir} . "/" . $key . ".txt for writing: $!";
@@ -369,7 +404,7 @@ sub download_loop($$$) {
 				}
 				close(OUT);
 
-				if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
+				if($conn_prf->{Debug} eq "0" and $dir->{Debug} eq "0") {
 					myprint(P_INFO, "Moving file '$key.lst' to '$dir->{LocalDir}'...\n");
 					move($dir->{TempDir} . '/' . $key . ".lst", $dir->{LocalDir} . '/')
 						or die "$!";
@@ -385,7 +420,7 @@ sub download_loop($$$) {
 
 # upload_loop()		Loop through upload directory profiles, uploading whatever matches
 #
-# input parms		\%conn_info	Connection configuration values
+# input parms		\%conn_prf	Connection Profile configuration values
 # 			$conn		Connection Object
 # 			\@date		Current date
 #
@@ -393,61 +428,72 @@ sub download_loop($$$) {
 # 			1 on general failure
 
 sub upload_loop($$$) {
-	my($conn_info) = shift;
+	my($conn_prf) = shift;
 	my($conn) = shift;
 	my($date) = shift;
 
-	foreach my $key (keys %{$conn_info->{Upload}}) {
-		my($dir) = $conn_info->{Upload}->{$key};
+	foreach my $key (keys %{$conn_prf->{Upload}}) {
+		my($dir) = $conn_prf->{Upload}->{$key};
 
 		if($dir->{Active} eq "0") {
 			myprint(P_INFO, "Upload profile $key is Inactive.\n");
 			next;
 		}
 
+		mkpath($dir->{LocalDir});
+		mkpath($dir->{ArchiveDir});
+		mkpath($dir->{TempDir});
+		chdir($dir->{TempDir});
+	
 		# Replace %Variables%
 		$dir->{LocalDir} = var_replace($dir->{LocalDir}, $date);
 		$dir->{RemoteDir} = var_replace($dir->{RemoteDir}, $date);
 		$dir->{ArchiveDir} = var_replace($dir->{ArchiveDir}, $date);
 		$dir->{ArchivePst} = var_replace($dir->{ArchivePst}, $date);
 
-		mkpath($dir->{LocalDir});
-		mkpath($dir->{ArchiveDir});
-		mkpath($dir->{TempDir});
-		chdir($dir->{TempDir});
-	
 		myprint(P_INFO, "Getting file list for '$dir->{LocalDir}'.\n");
 		opendir(DIR, $dir->{LocalDir}) or die "Can't open directory '$dir->{LocalDir}': $!";
-		my(@list) = grep { -f $dir->{LocalDir} . "/" . $_ && /$dir->{Regex}/ } readdir(DIR);
+		my(@list) = grep { -f $dir->{LocalDir} . "/" . $_ && /$dir->{Regex}/i } readdir(DIR);
 		closedir(DIR);
 
 		if($#list >= 0) {
-			myprint(P_PROG, "Uploading all files matching /$dir->{Regex}/ in '$dir->{LocalDir}'.\n");
+			myprint(P_PROG, "Uploading all files matching /$dir->{Regex}/i in '$dir->{LocalDir}'.\n");
 			foreach my $file (@list) {
-				if($file =~ m/$dir->{Regex}/i) {
-					myprint(P_INFO, "Sending '$file'...\n");
-					put_wrap($conn, $file, $dir->{LocalDir}, $dir->{RemoteDir});
+				my($file2) = encrypt_wrap($dir, $file);
 
-					if($conn_info->{Debug} eq "0" and $dir->{Debug} eq "0") {
-						if($dir->{ArchiveDir} ne "") {
-							my($newfile) = $file;
-							if($newfile =~ m/^(.*)([.][^.]*)$/) {
-								$newfile = $1 . $dir->{ArchivePst} . $2;
+				if($file2 ne "") {
+					my($file3) = $file;
+					$file = $file2;
+					$file2 = $file3;
+				}
+
+				myprint(P_INFO, "Sending '$file'...\n");
+				put_wrap($conn, $file, $dir->{LocalDir}, $dir->{RemoteDir});
+
+				if($conn_prf->{Debug} eq "0" and $dir->{Debug} eq "0") {
+					foreach my $arcfile ($file, $file2) {
+						if($arcfile ne "") {
+							if($dir->{ArchiveDir} ne "") {
+								my($newfile) = $arcfile;
+								if($newfile =~ m/^(.*)([.][^.]*)$/) {
+									$newfile = $1 . $dir->{ArchivePst} . $2;
+								} else {
+									$newfile .= $dir->{ArchivePst};
+								}
+
+								myprint(P_INFO, "Moving file '$arcfile' to '$dir->{ArchiveDir}/$newfile'...\n");
+								move($dir->{LocalDir} . '/' . $arcfile, $dir->{ArchiveDir} . '/' . $newfile)
+								or die "$!";
 							} else {
-								$newfile .= $dir->{ArchivePst};
+								unlink($dir->{TempDir} . '/' . $arcfile);
 							}
-
-							myprint(P_INFO, "Moving file '$file' to '$dir->{ArchiveDir}/$newfile'...\n");
-							move($dir->{LocalDir} . '/' . $file, $dir->{ArchiveDir} . '/' . $newfile)
-							or die "$!";
-						} else {
-							unlink($dir->{TempDir} . '/' . $file);
 						}
 					}
 				}
 			}
+		
 		} else {
-			myprint(P_PROG, "No files matching /$dir->{Regex}/ in '$dir->{LocalDir}'.\n");
+			myprint(P_PROG, "No files matching /$dir->{Regex}/i in '$dir->{LocalDir}'.\n");
 		}
 	}
 
@@ -456,48 +502,53 @@ sub upload_loop($$$) {
 
 }
 
+########################################################################################################
+# Wrapper Subroutines
+########################################################################################################
+
 # connect_wrap()	Connects to specified server
 #
-# input parms	\%conn_info	Connection configuration values
+# input parms	\%conn_prf	Connection Profile configuration values
 #
 # returns	$conn		Connection Object
 
 sub connect_wrap($) {
-	my($conn_info) = shift;
+	my($conn_prf) = shift;
 
 	my($conn);
 
-	if($conn_info->{ConnType} eq "sftp") {
-		if($conn_info->{AuthType} eq "Password") {
-			myprint(P_PROG, "Logging in to server '$conn_info->{Server}' as '$conn_info->{User}' using PASSWORD...\n");
+	if($conn_prf->{ConnType} eq "sftp") {
+		if($conn_prf->{AuthType} eq "Password") {
+			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using PASSWORD...\n");
 			$conn = Net::SFTP->new(
-					$conn_info->{Server},
-					user => $conn_info->{User}, 
-					password => $conn_info->{AuthData},
-					debug => $conn_info->{Debug}
-				) or die "Cannot connect to $conn_info->{Server}: $!";
+					$conn_prf->{Server},
+					user => $conn_prf->{User}, 
+					password => $conn_prf->{AuthData},
+					debug => $conn_prf->{Debug}
+				) or die "Cannot connect to $conn_prf->{Server}: $!";
 		} else {
-			myprint(P_PROG, "Logging in to server '$conn_info->{Server}' as '$conn_info->{User}' using IDENTITY...\n");
+			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using IDENTITY...\n");
 			$conn = Net::SFTP->new(
-					$conn_info->{Server},
-					user => $conn_info->{User}, 
-					debug => $conn_info->{Debug},
+					$conn_prf->{Server},
+					user => $conn_prf->{User}, 
+					debug => $conn_prf->{Debug},
 					ssh_args => [ 
-						identity_files => [ $conn_info->{AuthData} ]
+						identity_files => [ $conn_prf->{AuthData} ]
 					]
-				) or die "Cannot connect to $conn_info->{Server}: $!";
+				) or die "Cannot connect to $conn_prf->{Server}: $!";
 		}
-	} elsif($conn_info->{ConnType} eq "ftp") {
+	} elsif($conn_prf->{ConnType} eq "ftp") {
+		myprint(P_PROG, "Logging in to server '$conn_prf->{Server}' as '$conn_prf->{User}' using PASSWORD...\n");
 		$conn = Net::FTP->new(
-				$conn_info->{Server},
-				Debug => $conn_info->{Debug}
-			) or die "Cannot connect to $conn_info->{Server}: $!";
-		$conn->login($conn_info->{User}, $conn_info->{AuthData})
-			or die "Cannot login to $conn_info->{Server}: ", $conn->message;
+				$conn_prf->{Server},
+				Debug => $conn_prf->{Debug}
+			) or die "Cannot connect to $conn_prf->{Server}: $!";
+		$conn->login($conn_prf->{User}, $conn_prf->{AuthData})
+			or die "Cannot login to $conn_prf->{Server}: ", $conn->message;
 		# FIXME: Does this need to be a configurable option?
 		$conn->binary;
 	} else {
-		die "Unknown ConnType $conn_info->{ConnType}!";
+		die "Unknown ConnType $conn_prf->{ConnType}!";
 	}
 
 	return $conn;
@@ -506,22 +557,22 @@ sub connect_wrap($) {
 
 # disconnect_wrap()	Disconnects from specified server
 #
-# input parms	\%conn_info	Connection configuration values
+# input parms	\%conn_prf	Connection Profile configuration values
 #		$conn		Connection Object
 #
 # returns	none
 
 sub disconnect_wrap($$) {
-	my($conn_info) = shift;
+	my($conn_prf) = shift;
 	my($conn) = shift;
 
-	myprint(P_PROG, "Disconnecting from server '$conn_info->{Server}'...\n");
-	if($conn_info->{ConnType} eq "sftp") {
+	myprint(P_PROG, "Disconnecting from server '$conn_prf->{Server}'...\n");
+	if($conn_prf->{ConnType} eq "sftp") {
 		undef $conn;
-	} elsif($conn_info->{ConnType} eq "ftp") {
+	} elsif($conn_prf->{ConnType} eq "ftp") {
 		$conn->quit;	
 	} else {
-		die "Unknown ConnType $conn_info->{ConnType}!";
+		die "Unknown ConnType $conn_prf->{ConnType}!";
 	}
 
 }
@@ -543,7 +594,10 @@ sub ls_wrap($$) {
 			push @list, $item->{filename};
 		}
 	} elsif($conn =~ /^Net::FTP/) {
-		@list = $conn->ls($dir);
+		foreach my $item ($conn->ls($dir)) {
+			$item =~ s#^$dir[/\\]*##;
+			push @list, $item;
+		}
 	} elsif($conn =~ /^LocalDir/) {
 		opendir(DIR, $dir)
 			or die "Can't open directory $dir: $!";
@@ -554,6 +608,9 @@ sub ls_wrap($$) {
 		die "Unknown connection type: $conn";
 	}
 
+	foreach my $item (@list) {
+		myprint(P_DEBUG5, "List Entry: '$item'\n");
+	}
 	return @list;
 
 }
@@ -641,6 +698,76 @@ sub rm_wrap($$$) {
 
 	return 0;
 
+}
+
+# decrypt_wrap()	Conditionally decrypts files
+#
+# input parms	\%dir_prf	Directory Profile configuration values
+#		$file		File to decrypt
+#
+# returns	$file2		Decrypted file on success
+# 				Empty string on non encrypted file/no CryptType chosen
+
+sub decrypt_wrap($$) {
+	my($dir_prf) = shift;
+	my($file) = shift;
+	my($file2) = "";
+
+	if($dir_prf->{CryptType} eq "PGP" and $file =~ m/^(.*)[.](asc|pgp)$/i) {
+		$file2 = $1;
+
+		myprint(P_INFO, "Decrypting $file with $dir_prf->{CryptType}/$dir_prf->{CryptData}\n");
+		my($gpg) = new Crypt::GPG;
+		$gpg->gpgbin('/usr/bin/gpg');
+		$gpg->secretkey($dir_prf->{CryptData});
+		$gpg->debug($dir_prf->{Debug});
+
+		open(IN, "< $file") or die "Can't open file $file for reading: $!";
+		my($data) = $gpg->decrypt([<IN>]);
+		close(IN);
+		open(OUT, "> $file2") or die "Can't open file $file2 for writing: $!";
+		print OUT $data;
+		close(OUT);
+	}
+
+	return $file2;
+}
+
+# encrypt_wrap()	Conditionally encrypts files
+#
+# input parms	\%dir_prf	Directory Profile configuration values
+#		$file		File to encrypt
+#
+# returns	$file2		Encrypted file on success
+# 				Empty string on non encrypted file/no CryptType chosen
+
+sub encrypt_wrap($$) {
+	my($dir_prf) = shift;
+	my($file) = shift;
+	my($file2) = "";
+
+	if($dir_prf->{CryptType} eq "PGP" and $file =~ m/[.](asc|pgp)$/i) {
+		$file2 = $file.".asc";
+
+		myprint(P_INFO, "Decrypting $file with $dir_prf->{CryptType}/$dir_prf->{CryptData}\n");
+		my($identity,$recipient) = split(/,/, $dir_prf->{CryptData});
+		my($gpg) = new Crypt::GPG;
+		$gpg->gpgbin('/usr/bin/gpg');
+		$gpg->secretkey($identity);
+		$gpg->encryptsafe(0);
+		$gpg->debug($dir_prf->{Debug});
+
+		open(IN, "< $file") or die "Can't open file $file for reading: $!";
+		my($cleartext) = join('', <IN>);
+		close(IN);
+		open(OUT, "> $file2") or die "Can't open file $file2 for writing: $!";
+		foreach my $line ($gpg->encrypt($cleartext, $recipient)) {
+			print OUT $line."\n";
+		}
+		close(OUT);
+	}
+
+	return $file2;
 }
 
 ########################################################################################################
