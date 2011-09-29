@@ -975,7 +975,7 @@ sub put_wrap($$$$$$) {
 	if($conn =~ /^Net::SFTP::Foreign/) {
 		$conn->put($dir . '/' . $file, $rmt_dir . '/' . $file,
 				copy_perms => 0, copy_time => 0)
-			or (myprint(P_ERROR, "Error sending '$file'\n") and die);
+			or (myprint(P_ERROR, "Error sending '$file': " . $conn->error . "\n") and die);
 	} elsif($conn =~ /^Net::FTP/) {
 		if($type eq "ASCII") {
 			$conn->ascii();
