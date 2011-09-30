@@ -10,11 +10,13 @@ use strict;
 use warnings;
 
 use constant {
-        PROG    => 'sndrcv',
-        VER     => 20110510002
+	PROG	=> 'sndrcv',
+	VER	=> 20110930001
 };
 
-#use Net::SFTP;
+use constant SFTP_MODULE => 'Net::SFTP';
+use Net::SFTP;	# Re-Enable Net::SFTP, Net::SFTP::Foreign has problems when sending files, does not allow password-interactive
+use Math::BigInt::GMP; # Fast math library used by Net::SFTP
 use Net::SFTP::Foreign;
 use Net::FTP;
 use WWW::Curl::Easy;
@@ -34,15 +36,15 @@ use Cwd qw{ abs_path };
 # Constants
 ########################################################################################################
 
-use constant P_ERROR  => -1;
-use constant P_PROG   =>  1;
-use constant P_INFO   =>  2;
-use constant P_DEBUG  =>  3;
-use constant P_DEBUG1 =>  3;
-use constant P_DEBUG2 =>  4;
-use constant P_DEBUG3 =>  5;
-use constant P_DEBUG4 =>  6;
-use constant P_DEBUG5 =>  7;
+use constant P_ERROR	=> -1;
+use constant P_PROG	=>  1;
+use constant P_INFO	=>  2;
+use constant P_DEBUG	=>  3;
+use constant P_DEBUG1	=>  3;
+use constant P_DEBUG2	=>  4;
+use constant P_DEBUG3	=>  5;
+use constant P_DEBUG4	=>  6;
+use constant P_DEBUG5	=>  7;
 
 ########################################################################################################
 # Globals
@@ -350,39 +352,39 @@ sub get_date() {
 
 sub get_filesize($) {
 
-        my($filename) = shift;
-        my($size) = (-s $filename);
+	my($filename) = shift;
+	my($size) = (-s $filename);
 
-        my(@units) = ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB');
+	my(@units) = ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB');
 
-        my($i) = 0;
-        while($size >= 1024) {
-                $size /= 1024;
-                $i++;
-        }
+	my($i) = 0;
+	while($size >= 1024) {
+		$size /= 1024;
+		$i++;
+	}
 
-        die "Overflow on get_filesize($filename)" if($#units < $i);
-        my($ret) = sprintf("%0.2f", $size);
-        $ret =~ s/0*$//;
-        $ret =~ s/\.$//;
-        $ret = $ret . ' ' . $units[$i];
+	die "Overflow on get_filesize($filename)" if($#units < $i);
+	my($ret) = sprintf("%0.2f", $size);
+	$ret =~ s/0*$//;
+	$ret =~ s/\.$//;
+	$ret = $ret . ' ' . $units[$i];
 
-        return($ret);
+	return($ret);
 
 }
 
 # var_replace()	Replace wildcard values in a string with current date values
 #
 # Wildcards replaced:
-# %s%   Current Second          00-59 (60 on leap-second)
-# %m%   Current Minute          00-59
-# %h%   Current Hour            00-23
-# %M%   Current Month           00-12
-# %D%   Current Day of Month    00-31
-# %CY%  Current 4-Dig Year      CCYY
-# %C%   Current 2-Dig Century   CC
-# %Y%   Current 2-Dig Year      YY
-# %J%   Current Day of Year     001-366
+# %s%	Current Second		00-59 (60 on leap-second)
+# %m%	Current Minute		00-59
+# %h%	Current Hour		00-23
+# %M%	Current Month		00-12
+# %D%	Current Day of Month	00-31
+# %CY%	Current 4-Dig Year	CCYY
+# %C%	Current 2-Dig Century	CC
+# %Y%	Current 2-Dig Year	YY
+# %J%	Current Day of Year	001-366
 #
 # input parms	$str	String to operate on
 # 		\@date	Date values to use for replacement
@@ -729,45 +731,71 @@ sub connect_wrap($) {
 	my($conn);
 
 	if($conn_prf->{ConnType} eq "sftp") {
-		if($conn_prf->{AuthType} eq "Password") {
-			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
-			if($conn_prf->{Debug} eq "1") {
-				$conn = Net::SFTP::Foreign->new(
-						$conn_prf->{Server},
-						user => $conn_prf->{User},
-						password => $conn_prf->{AuthData},
-						port => $conn_prf->{Port},
-						more => [ '-v' ]
-					) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
+		if(SFTP_MODULE eq 'Net::SFTP::Foreign') {
+			if($conn_prf->{AuthType} eq "Password") {
+				myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
+				if($conn_prf->{Debug} eq "1") {
+					$conn = Net::SFTP::Foreign->new(
+							$conn_prf->{Server},
+							user => $conn_prf->{User},
+							password => $conn_prf->{AuthData},
+							port => $conn_prf->{Port},
+							more => [ '-v' ]
+						) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
+				} else {
+					$conn = Net::SFTP::Foreign->new(
+							$conn_prf->{Server},
+							user => $conn_prf->{User},
+							password => $conn_prf->{AuthData},
+							port => $conn_prf->{Port}
+						) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
+				}
 			} else {
-				$conn = Net::SFTP::Foreign->new(
-						$conn_prf->{Server},
-						user => $conn_prf->{User},
-						password => $conn_prf->{AuthData},
-						port => $conn_prf->{Port}
-					) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
+				myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using IDENTITY...\n");
+				if($conn_prf->{Debug} eq "1") {
+					$conn = Net::SFTP::Foreign->new(
+							$conn_prf->{Server},
+							user => $conn_prf->{User},
+							password => $conn_prf->{AuthData},
+							port => $conn_prf->{Port},
+							more => [
+								'-i' => $conn_prf->{AuthData},
+								'-v'
+							]
+						) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
+				} else {
+					$conn = Net::SFTP::Foreign->new(
+							$conn_prf->{Server},
+							user => $conn_prf->{User},
+							password => $conn_prf->{AuthData},
+							port => $conn_prf->{Port},
+							more => [
+								'-i' => $conn_prf->{AuthData}
+							]
+						) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
+				}
 			}
-		} else {
-			myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using IDENTITY...\n");
-			if($conn_prf->{Debug} eq "1") {
-				$conn = Net::SFTP::Foreign->new(
+		} else { # Net::SFTP
+			if($conn_prf->{AuthType} eq "Password") {
+				myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
+				$conn = Net::SFTP->new(
 						$conn_prf->{Server},
-						user => $conn_prf->{User},
+						user => $conn_prf->{User}, 
 						password => $conn_prf->{AuthData},
-						port => $conn_prf->{Port},
-						more => [
-							'-i' => [ $conn_prf->{AuthData} ],
-							'-v'
+						debug => $conn_prf->{Debug},
+						ssh_args => [
+							port => $conn_prf->{Port}
 						]
 					) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
 			} else {
-				$conn = Net::SFTP::Foreign->new(
+				myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using IDENTITY...\n");
+				$conn = Net::SFTP->new(
 						$conn_prf->{Server},
-						user => $conn_prf->{User},
-						password => $conn_prf->{AuthData},
-						port => $conn_prf->{Port},
-						more => [
-							'-i' => [ $conn_prf->{AuthData} ]
+						user => $conn_prf->{User}, 
+						debug => $conn_prf->{Debug},
+						ssh_args => [ 
+							identity_files => [ $conn_prf->{AuthData} ],
+							port => $conn_prf->{Port}
 						]
 					) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
 			}
@@ -849,6 +877,10 @@ sub ls_wrap($$$) {
 		foreach my $item (@{$conn->ls($dir)}) {
 			push @list, $item->{filename};
 		}
+	} elsif($conn =~ /^Net::SFTP/) {
+		foreach my $item ($conn->ls($dir)) {
+			push @list, $item->{filename};
+		}
 	} elsif($conn =~ /^Net::FTP/) {
 		foreach my $item ($conn->ls($dir)) {
 			$item =~ s|^$dir[/\\]*||;
@@ -921,6 +953,11 @@ sub get_wrap($$$$$) {
 		if(! -e $file) {
 			myprint(P_ERROR, "Error receiving '$file'\n") and die;
 		}
+	} elsif($conn =~ /^Net::SFTP/) {
+		$conn->get($dir . '/' . $file, $file);
+		if(! -e $file) {
+			myprint(P_ERROR, "Error receiving '$file'\n") and die;
+		}
 	} elsif($conn =~ /^Net::FTP/) {
 		if($type eq "ASCII") {
 			$conn->ascii();
@@ -975,6 +1012,9 @@ sub put_wrap($$$$$$) {
 	if($conn =~ /^Net::SFTP::Foreign/) {
 		$conn->put($dir . '/' . $file, $rmt_dir . '/' . $file,
 				copy_perms => 0, copy_time => 0)
+			or (myprint(P_ERROR, "Error sending '$file': " . $conn->error . " (" . $conn->status . ")\n") and die);
+	} elsif($conn =~ /^Net::SFTP/) {
+		$conn->put($dir . '/' . $file, $rmt_dir . '/' . $file)
 			or (myprint(P_ERROR, "Error sending '$file'\n") and die);
 	} elsif($conn =~ /^Net::FTP/) {
 		if($type eq "ASCII") {
