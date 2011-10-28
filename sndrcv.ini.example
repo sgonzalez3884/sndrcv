@@ -7,7 +7,8 @@
 	ConnType	""	# Connection type.
 				# Current supported types:
 				# 	ftp		FTP (via Net::FTP)
-				# 	ftps		Secrue FTP using TLS (via WWW::Curl)
+				# 	ftps		Implicit Secure FTP using TLS/SSL (via WWW::Curl)
+				# 	ftpes		Explicit Secure FTP using TLS/SSL (via WWW::Curl)
 				# 	sftp		Secure FTP using SSH2 (via Net::SFTP)
 				# Required field
 

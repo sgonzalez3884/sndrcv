@@ -11,7 +11,7 @@ use warnings;
 
 use constant {
 	PROG	=> 'sndrcv',
-	VER	=> 20110930001
+	VER	=> 20111028001
 };
 
 use constant SFTP_MODULE => 'Net::SFTP';
@@ -134,12 +134,16 @@ sub validate_config($) {
 		}
 
 		# Check set values
-		if((grep $config->{$conn}->{ConnType},("ftp","ftps","sftp")) == 0) {
+		if((grep $config->{$conn}->{ConnType},("ftp","ftps","ftpes","sftp")) == 0) {
 			myprint(P_ERROR, "Invalid ConnType '$config->{$conn}->{ConnType}' in Connection $conn\n") and die;
 		}
 
 		if(!($config->{$conn}->{Port} =~ m/^[0-9]+$/)) {
 			myprint(P_ERROR, "Invalid Port '$config->{$conn}->{Port}' in Connection $conn (must be non-negative integer)\n") and die;
+		}
+
+		if($config->{$conn}->{ConnType} eq 'ftps' and $config->{$conn}->{Port} != 0) {
+			myprint(P_ERROR, "Port option not allowed when using ftps!\n") and die;
 		}
 
 		if($config->{$conn}->{AuthType} eq "Identity" &&
@@ -290,6 +294,8 @@ sub validate_config($) {
 			if($config->{$conn}->{ConnType} eq "ftp") {
 				$config->{$conn}->{Port} = 21;
 			} elsif($config->{$conn}->{ConnType} eq "ftps") {
+				$config->{$conn}->{Port} = 990;
+			} elsif($config->{$conn}->{ConnType} eq "ftpes") {
 				$config->{$conn}->{Port} = 21;
 			} elsif($config->{$conn}->{ConnType} eq "sftp") {
 				$config->{$conn}->{Port} = 22;
@@ -812,6 +818,22 @@ sub connect_wrap($) {
 	} elsif($conn_prf->{ConnType} eq "ftps") {
 		myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
 		$conn = new WWW::Curl::Easy;
+		$conn->setopt(CURLOPT_SSL_VERIFYPEER,0);
+		$conn->setopt(CURLOPT_FTP_USE_EPSV,0);
+		$conn->setopt(CURLOPT_URL,'ftps://'.$conn_prf->{Server});
+		$conn->setopt(CURLOPT_USERPWD,$conn_prf->{User}.':'.$conn_prf->{AuthData});
+		$conn->setopt(CURLOPT_VERBOSE,$conn_prf->{Debug});
+		$conn->setopt(CURLOPT_FTPLISTONLY,1);
+
+		my($fileb);
+		open($fileb, ">", "/dev/null");
+		$conn->setopt(CURLOPT_WRITEDATA,$fileb);
+		my $retval = curl_wrap($conn);
+		close($fileb);
+		myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: ".$conn->strerror($retval)." ($retval)\n") and die if($retval != 0);
+	} elsif($conn_prf->{ConnType} eq "ftpes") {
+		myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
+		$conn = new WWW::Curl::Easy;
 		$conn->setopt(CURLOPT_FTP_SSL,1);
 		$conn->setopt(CURLOPT_FTP_SSL_CCC,1);
 		$conn->setopt(CURLOPT_SSL_VERIFYPEER,0);
@@ -851,6 +873,8 @@ sub disconnect_wrap($$) {
 		undef $conn;
 	} elsif($conn_prf->{ConnType} eq "ftp") {
 		$conn->quit;
+	} elsif($conn_prf->{ConnType} eq "ftpes") {
+		undef $conn;
 	} elsif($conn_prf->{ConnType} eq "ftps") {
 		undef $conn;
 	} else {
@@ -887,7 +911,6 @@ sub ls_wrap($$$) {
 			push @list, $item;
 		}
 	} elsif($conn =~ /^WWW::Curl/) {
-		#$conn->setopt(CURLOPT_FTPLISTONLY,1);
 		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/');
 
 		my($response_body) = "";
@@ -902,11 +925,15 @@ sub ls_wrap($$$) {
 			myprint(P_DEBUG5, "Response body when listing FTPS directory $dir:\n$response_body\n");
 			foreach my $line (split(/\n|\r/, $response_body)) {
 					chomp($line);
-					if(!($line =~ m/total\s*\d*$/)) {
-						$line =~ s/^\s+//g;
-						$line =~ s/\s+$//g;
-						$line =~ s/^.*[A-Z][a-z]{2}\s{1,2}\d{1,2}\s+\d{1,2}:\d{2}\s+//;
-						push(@list, $line) if($line ne "");
+					if($conn_prf->{ConnType} eq 'ftps') {
+						if(!($line =~ m/total\s*\d*$/)) {
+							$line =~ s/^\s+//g;
+							$line =~ s/\s+$//g;
+							$line =~ s/^.*[A-Z][a-z]{2}\s{1,2}\d{1,2}\s+\d{1,2}:\d{2}\s+//;
+							push(@list, $line) if($line ne "");
+						}
+					} else {
+							push(@list, $line) if($line ne "");
 					}
 			}
 			undef $response_body;
@@ -923,7 +950,7 @@ sub ls_wrap($$$) {
 		myprint(P_ERROR, "Unknown ConnType: $conn\n") and die;
 	}
 
-	myprint(P_DEBUG5, "List Entries ($#list)\n");
+	myprint(P_DEBUG5, "List Entries (" . ($#list+1) . ")\n");
 	foreach my $item (@list) {
 		myprint(P_DEBUG5, "List Entry: '$item'\n");
 	}
