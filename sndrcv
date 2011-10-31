@@ -925,7 +925,7 @@ sub ls_wrap($$$) {
 			myprint(P_DEBUG5, "Response body when listing FTPS directory $dir:\n$response_body\n");
 			foreach my $line (split(/\n|\r/, $response_body)) {
 					chomp($line);
-					if($conn_prf->{ConnType} eq 'ftps') {
+					if($conn_prf->{ConnType} eq 'ftpes') {
 						if(!($line =~ m/total\s*\d*$/)) {
 							$line =~ s/^\s+//g;
 							$line =~ s/\s+$//g;
