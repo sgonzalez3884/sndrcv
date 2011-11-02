@@ -823,7 +823,6 @@ sub connect_wrap($) {
 		$conn->setopt(CURLOPT_URL,'ftps://'.$conn_prf->{Server});
 		$conn->setopt(CURLOPT_USERPWD,$conn_prf->{User}.':'.$conn_prf->{AuthData});
 		$conn->setopt(CURLOPT_VERBOSE,$conn_prf->{Debug});
-		$conn->setopt(CURLOPT_FTPLISTONLY,1);
 
 		my($fileb);
 		open($fileb, ">", "/dev/null");
@@ -911,14 +910,19 @@ sub ls_wrap($$$) {
 			push @list, $item;
 		}
 	} elsif($conn =~ /^WWW::Curl/) {
-		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/');
+		if($conn_prf->{ConnType} eq 'ftpes') {
+			$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/');
+		} else {
+			$conn->setopt(CURLOPT_URL,'ftps://'.$conn_prf->{Server}.'/'.$dir.'/');
+			$conn->setopt(CURLOPT_FTPLISTONLY,1);
+		}
 
 		my($response_body) = "";
 		open(my $fh, ">", \$response_body);
 			$conn->setopt(CURLOPT_WRITEDATA,$fh);
 			my $retval = curl_wrap($conn);
 			myprint(P_ERROR, "Can't list directory $dir: ".$conn->strerror($retval)."\n") and die if($retval != 0);
-			#$conn->setopt(CURLOPT_FTPLISTONLY,0);
+			$conn->setopt(CURLOPT_FTPLISTONLY,0);
 		close($fh);
 
 		if(defined($response_body)) {
@@ -1000,7 +1004,12 @@ sub get_wrap($$$$$) {
 		} else {
 			$conn->setopt(CURLOPT_TRANSFERTEXT,0);
 		}
-		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/'.$file);
+		
+		if($conn_prf->{ConnType} eq 'ftpes') {
+			$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$dir.'/'.$file);
+		} else {
+			$conn->setopt(CURLOPT_URL,'ftps://'.$conn_prf->{Server}.'/'.$dir.'/'.$file);
+		}
 		my($fileb);
 		open($fileb, "> $file");
 			$conn->setopt(CURLOPT_WRITEDATA,$fileb);
@@ -1058,7 +1067,11 @@ sub put_wrap($$$$$$) {
 		} else {
 			$conn->setopt(CURLOPT_TRANSFERTEXT,0);
 		}
-		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$rmt_dir.'/'.$file);
+		if($conn_prf->{ConnType} eq 'ftpes') {
+			$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$rmt_dir.'/'.$file);
+		} else {
+			$conn->setopt(CURLOPT_URL,'ftps://'.$conn_prf->{Server}.'/'.$rmt_dir.'/'.$file);
+		}
 		$conn->setopt(CURLOPT_UPLOAD,1);
 		my($fileb);
  		open($fileb, "< $dir/$file");
@@ -1098,7 +1111,11 @@ sub rm_wrap($$$$) {
 	} elsif($conn =~ /^Net::FTP/) {
 		$conn->delete($dir . '/' . $file);
 	} elsif($conn =~ /^WWW::Curl/) {
-		$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/');
+		if($conn_prf->{ConnType} eq 'ftpes') {
+			$conn->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/');
+		} else {
+			$conn->setopt(CURLOPT_URL,'ftps://'.$conn_prf->{Server}.'/');
+		}
 		$conn->setopt(CURLOPT_CUSTOMREQUEST,"DELE $dir/$file");
 		my($fileb);
 		open($fileb, "< $dir/$file");
