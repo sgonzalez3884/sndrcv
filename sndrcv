@@ -1159,6 +1159,10 @@ sub decrypt_wrap($$) {
 		open(IN, "< $file")
 			or (myprint(P_ERROR, "Can't open file $file for reading: $!\n") and die);
 		my($data) = $gpg->decrypt([<IN>]);
+		if(!defined($data) or $data eq "") {
+			myprint(P_ERROR, "Error decrytping file $file: NO DATA\n");
+			die;
+		}
 		close(IN);
 		open(OUT, "> $file2")
 			or (myprint(P_ERROR, "Can't open file $file2 for writing: $!\n") and die);
@@ -1197,9 +1201,17 @@ sub encrypt_wrap($$) {
 			or (myprint(P_ERROR, "Can't open file $file for reading: $!\n") and die);
 		my($cleartext) = join('', <IN>);
 		close(IN);
+		my(@crypted) = ();
+		foreach my $line ($gpg->encrypt($cleartext, $recipient, -sign)) {
+			if(!defined($line) or $line eq "") {
+				myprint(P_ERROR, "Error encrytping file $file: NO DATA\n");
+				die;
+			}
+			push(@crypted, $line);
+		}
 		open(OUT, "> $dir_prf->{LocalDir}/$file2")
 			or (myprint(P_ERROR, "Can't open file $file2 for writing: $!\n") and die);
-		foreach my $line ($gpg->encrypt($cleartext, $recipient, -sign)) {
+		foreach my $line (@crypted) {
 			print OUT $line."\n";
 		}
 		close(OUT);
