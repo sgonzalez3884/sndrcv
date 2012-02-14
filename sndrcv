@@ -576,6 +576,7 @@ sub upload_loop($$$) {
 		# Replace %Variables%
 		$dir->{LocalDir} = var_replace($dir->{LocalDir}, $date);
 		$dir->{RemoteDir} = var_replace($dir->{RemoteDir}, $date);
+		$dir->{RemoteFile} = var_replace($dir->{RemoteFile}, $date);
 		$dir->{ArchiveDir} = var_replace($dir->{ArchiveDir}, $date);
 		$dir->{ArchivePst} = var_replace($dir->{ArchivePst}, $date);
 
@@ -587,14 +588,31 @@ sub upload_loop($$$) {
 		chdir($dir->{TempDir});
 
 		myprint(P_INFO, "Getting file list for '$dir->{LocalDir}'.\n");
-		opendir(DIR, $dir->{LocalDir})
-			or (myprint(P_ERROR, "Can't open directory '$dir->{LocalDir}': $!\n") and die);
-		my(@list) = grep { -f $dir->{LocalDir} . "/" . $_ && /$dir->{Regex}/i } readdir(DIR);
-		closedir(DIR);
+		my(@list) = ();
+		foreach my $file (lls_wrap($dir->{LocalDir})) {
+			if ( -f $dir->{LocalDir} . "/" . $file and
+					$file =~ m/$dir->{Regex}/i) {
+				my($rfile) = $file;
+
+				$rfile = eval(eval($dir->{RemoteFile})) if (defined($dir->{RemoteFile}) and
+					$dir->{RemoteFile} ne '' and
+					$dir->{RemoteFile} ne '""');
+
+				myprint(P_DEBUG5, "Local file: '$file' maps to Remote file: '$rfile'\n");
+				push(@list, [$file, $rfile]);
+				
+			}
+		}
+		#my(@list) = grep { -f $dir->{LocalDir} . "/" . $_ && m/$dir->{Regex}/i } lls_wrap($dir->{LocalDir});
+		#opendir(DIR, $dir->{LocalDir})
+		#	or (myprint(P_ERROR, "Can't open directory '$dir->{LocalDir}': $!\n") and die);
+		#my(@list) = grep { -f $dir->{LocalDir} . "/" . $_ && /$dir->{Regex}/i } readdir(DIR);
+		#closedir(DIR);
 
 		if($#list >= 0) {
 			myprint(P_PROG, "Uploading all files matching /$dir->{Regex}/i in '$dir->{LocalDir}'.\n");
-			foreach my $file (@list) {
+			foreach my $filearr (@list) {
+				my($file, $rfile) = @$filearr;
 				my($file2) = encrypt_wrap($dir, $file);
 
 				# Swap file & file2 data
@@ -608,8 +626,12 @@ sub upload_loop($$$) {
 
 				my($size) = get_filesize($dir->{LocalDir} . '/' . $file);
 
-				myprint(P_INFO, "Sending '$file'...\n");
-				put_wrap($conn_prf, $file, $dir->{LocalDir}, $dir->{RemoteDir}, $dir->{TransferType});
+				if ($file eq $rfile) {
+					myprint(P_INFO, "Sending '$file'...\n");
+				} else {
+					myprint(P_INFO, "Sending '$file' as '$rfile'...\n");
+				}
+				put_wrap($conn_prf, $file, $rfile, $dir->{LocalDir}, $dir->{RemoteDir}, $dir->{TransferType});
 
 				if($dir->{Debug} eq "0") {
 					foreach my $arcfile ($file, $file2) {
@@ -1048,7 +1070,8 @@ sub get_wrap($$$$) {
 # put_wrap()	Put specified file via connection
 #
 # input parms	\%conn_prf	Connection Profile configuration values
-# 		$file		File to put
+# 		$file		Local file to put
+# 		$rfile		Remote file name
 # 		$dir		Directory file is located
 # 		$rmt_dir	Remote directory to put file
 # 		$type		Transfer Type
@@ -1056,9 +1079,10 @@ sub get_wrap($$$$) {
 # returns			0 on success
 # 				1 on general failure
 
-sub put_wrap($$$$$) {
+sub put_wrap($$$$$$) {
 	my($conn_prf) = shift;
 	my($file) = shift;
+	my($rfile) = shift;
 	my($dir) = shift;
 	my($rmt_dir) = shift;
 	my($type) = shift;
@@ -1066,11 +1090,11 @@ sub put_wrap($$$$$) {
 	connect_wrap($conn_prf);
 
 	if($conn_prf->{ConnObj} =~ /^Net::SFTP::Foreign/) {
-		$conn_prf->{ConnObj}->put($dir . '/' . $file, $rmt_dir . '/' . $file,
+		$conn_prf->{ConnObj}->put($dir . '/' . $file, $rmt_dir . '/' . $rfile,
 				copy_perms => 0, copy_time => 0)
 			or (myprint(P_ERROR, "Error sending '$file': " . $conn_prf->{ConnObj}->error . " (" . $conn_prf->{ConnObj}->status . ")\n") and die);
 	} elsif($conn_prf->{ConnObj} =~ /^Net::SFTP/) {
-		$conn_prf->{ConnObj}->put($dir . '/' . $file, $rmt_dir . '/' . $file)
+		$conn_prf->{ConnObj}->put($dir . '/' . $file, $rmt_dir . '/' . $rfile)
 			or (myprint(P_ERROR, "Error sending '$file'\n") and die);
 	} elsif($conn_prf->{ConnObj} =~ /^Net::FTP/) {
 		if($type eq "ASCII") {
@@ -1079,7 +1103,7 @@ sub put_wrap($$$$$) {
 			$conn_prf->{ConnObj}->binary();
 		}
 
-		$conn_prf->{ConnObj}->put($dir . '/' . $file, $rmt_dir . '/' . $file)
+		$conn_prf->{ConnObj}->put($dir . '/' . $file, $rmt_dir . '/' . $rfile)
 			or (myprint(P_ERROR, "Error sending '$file'\n") and die);
 	} elsif($conn_prf->{ConnObj} =~ /^WWW::Curl/) {
 		if($type eq "ASCII") {
@@ -1088,9 +1112,9 @@ sub put_wrap($$$$$) {
 			$conn_prf->{ConnObj}->setopt(CURLOPT_TRANSFERTEXT,0);
 		}
 		if($conn_prf->{ConnType} eq 'ftpes') {
-			$conn_prf->{ConnObj}->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$rmt_dir.'/'.$file);
+			$conn_prf->{ConnObj}->setopt(CURLOPT_URL,'ftp://'.$conn_prf->{Server}.'/'.$rmt_dir.'/'.$rfile);
 		} else {
-			$conn_prf->{ConnObj}->setopt(CURLOPT_URL,'ftps://'.$conn_prf->{Server}.'/'.$rmt_dir.'/'.$file);
+			$conn_prf->{ConnObj}->setopt(CURLOPT_URL,'ftps://'.$conn_prf->{Server}.'/'.$rmt_dir.'/'.$rfile);
 		}
 		$conn_prf->{ConnObj}->setopt(CURLOPT_UPLOAD,1);
 		my($fileb);
