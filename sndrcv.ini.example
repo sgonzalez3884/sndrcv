@@ -170,6 +170,11 @@
 		RemoteDir	""	# Directory on the server to place uploaded data.
 					# Required field
 
+		RemoteFile	''	# Remote filename - You can use capture groups from 'Regex' above
+					# Default value: local filename
+					# This must be double-double quoted!
+					# Example: '"$1-data.dat"' (1st capture group of 'Regex' followed by -data.dat
+
 		TempDir		""	# Local directory to store all temporary data.
 					# Required field
 
