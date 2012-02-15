@@ -28,7 +28,7 @@ use warnings;
 
 use constant {
 	PROG	=> 'sndrcv',
-	VER	=> 20111028001
+	VER	=> 20120214001
 };
 
 use constant SFTP_MODULE => 'Net::SFTP';
