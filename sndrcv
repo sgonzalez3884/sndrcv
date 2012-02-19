@@ -28,7 +28,7 @@ use warnings;
 
 use constant {
 	PROG	=> 'sndrcv',
-	VER	=> 20111028001
+	VER	=> 20120219001
 };
 
 use constant SFTP_MODULE => 'Net::SFTP';
@@ -267,6 +267,7 @@ sub validate_config($) {
 
 				# Set default values
 				foreach my $fldval (
+					["RemoteFile", ''],
 					["ArchiveDir", ""],
 					["ArchivePst", ""],
 					["CryptType", "None"],
