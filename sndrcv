@@ -544,7 +544,7 @@ sub download_loop($$$) {
 				open(OUT, "> " . $dir->{TempDir} . "/" . $dir->{ListName})
 						or (myprint(P_ERROR, "Can't open file '" . $dir->{TempDir} . "/" . $dir->{ListName} . "' for writing: $!\n") and
 						die);
-				foreach my $file (@list) {
+				foreach my $file (sort(@list)) {
 					if($file =~ m/$dir->{Regex}/i) {
 						print OUT "$file\n";
 					}
