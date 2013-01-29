@@ -31,7 +31,8 @@ use constant {
 	VER	=> 20120219001
 };
 
-use constant SFTP_MODULE => 'Net::SFTP';
+use constant SFTP_MODULE => 'Net::SFTP::Foreign';
+#use constant SFTP_MODULE => 'Net::SFTP';
 use Net::SFTP;	# Re-Enable Net::SFTP, Net::SFTP::Foreign has problems when sending files, does not allow password-interactive
 use Math::BigInt::GMP; # Fast math library used by Net::SFTP
 use Net::SFTP::Foreign;
@@ -804,7 +805,6 @@ sub connect_wrap($) {
 					$conn_prf->{ConnObj} = Net::SFTP::Foreign->new(
 							$conn_prf->{Server},
 							user => $conn_prf->{User},
-							password => $conn_prf->{AuthData},
 							port => $conn_prf->{Port},
 							more => [
 								'-i' => $conn_prf->{AuthData},
@@ -815,7 +815,6 @@ sub connect_wrap($) {
 					$conn_prf->{ConnObj} = Net::SFTP::Foreign->new(
 							$conn_prf->{Server},
 							user => $conn_prf->{User},
-							password => $conn_prf->{AuthData},
 							port => $conn_prf->{Port},
 							more => [
 								'-i' => $conn_prf->{AuthData}
@@ -1285,14 +1284,14 @@ sub encrypt_wrap($$) {
 sub main($) {
 	my(@argv) = @{(shift)};
 	my($prog,$path) = get_progpath();
-	my($test) = 0;
+	my($forcerun) = 0;
 
 	if($#argv < 0 || $#argv > 1 || ($#argv == 0 && $argv[0] eq "--test")) {
-		myprint(P_ERROR, "usage: $prog [--test] path_to_sndrcv.ini\n") and die;
+		myprint(P_ERROR, "usage: $prog [--forcerun] path_to_sndrcv.ini\n") and die;
 	}
 
-	if($argv[0] eq "--test") {
-		$test = 1;
+	if($argv[0] eq "--forcerun") {
+		$forcerun = 1;
 		shift @argv;
 	}
 
@@ -1319,7 +1318,7 @@ sub main($) {
 			$email_data->{Subject} = "File Transfer Notification for $key";
 		}
 
-		if($config->{$key}->{Active} eq "1" or $test == 1) {
+		if($config->{$key}->{Active} eq "1" or $forcerun == 1) {
 			if(upload_loop($config->{$key}, $date, $email_data) != 0) {
 				myprint(P_ERROR, "Error in upload loop!\n") and die;
 			}
