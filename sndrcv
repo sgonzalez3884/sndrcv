@@ -1163,7 +1163,9 @@ sub rm_wrap($$$) {
 	my($file) = shift;
 	my($dir) = shift;
 
-	if($conn_prf->{ConnObj} =~ /^Net::SFTP/) {
+	if($conn_prf->{ConnObj} =~ /^Net::SFTP::Foreign/) {
+		$conn_prf->{ConnObj}->remove($dir . '/' . $file);
+	} elsif($conn_prf->{ConnObj} =~ /^Net::SFTP/) {
 		$conn_prf->{ConnObj}->do_remove($dir . '/' . $file);
 	} elsif($conn_prf->{ConnObj} =~ /^Net::FTP/) {
 		$conn_prf->{ConnObj}->delete($dir . '/' . $file);
