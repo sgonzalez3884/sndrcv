@@ -476,6 +476,8 @@ sub download_loop($$$) {
 	my($date) = shift;
 	my($email_data) = shift;
 
+	return 0 if (!defined($conn_prf->{Download}));
+
 	foreach my $key (keys %{$conn_prf->{Download}}) {
 		connect_wrap($conn_prf);
 		my($dir) = $conn_prf->{Download}->{$key};
@@ -606,7 +608,7 @@ sub upload_loop($$$) {
 	my($date) = shift;
 	my($email_data) = shift;
 
-	return if (!defined($conn_prf->{Upload}));
+	return 0 if (!defined($conn_prf->{Upload}));
 
 	foreach my $key (keys %{$conn_prf->{Upload}}) {
 		my($dir) = $conn_prf->{Upload}->{$key};
