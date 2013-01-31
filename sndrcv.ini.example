@@ -9,8 +9,14 @@
 				# 	ftp		FTP (via Net::FTP)
 				# 	ftps		Implicit Secure FTP using TLS/SSL (via WWW::Curl)
 				# 	ftpes		Explicit Secure FTP using TLS/SSL (via WWW::Curl)
-				# 	sftp		Secure FTP using SSH2 (via Net::SFTP)
+				# 	sftp		Secure FTP using SSH2 (via Net::SFTP::Foreign)
 				# Required field
+
+	ConnModule	""	# Perl Module to use for connection.
+				# Current supported types:
+				#	(blank)		Use Default module
+				#	Net::SFTP	Use Net::SFTP, only valid for ConnType sftp
+				# Default value: (blank) (Use Default module)
 
 	Port		""	# Connection Port.
 				# Possible data:

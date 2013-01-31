@@ -31,8 +31,6 @@ use constant {
 	VER	=> 20120219001
 };
 
-use constant SFTP_MODULE => 'Net::SFTP::Foreign';
-#use constant SFTP_MODULE => 'Net::SFTP';
 use Net::SFTP;	# Re-Enable Net::SFTP, Net::SFTP::Foreign has problems when sending files, does not allow password-interactive
 use Math::BigInt::GMP; # Fast math library used by Net::SFTP
 use Net::SFTP::Foreign;
@@ -70,6 +68,12 @@ use constant P_DEBUG5	=>  7;
 
 my($fh);			# Text output filehandle
 my($verbosity) = P_PROG;	# Current verbosity level
+my(%connmodules) = (
+	'ftp' 	=> [ 'Net::FTP' ],
+	'ftps'	=> [ 'WWW::Curl::Easy' ],
+	'ftpes' => [ 'WWW::Curl::Easy' ],
+	'sftp'	=> [ 'Net::SFTP::Foreign', 'Net::SFTP' ]
+);				# Map of Connection Types to Connection Modules
 
 ########################################################################################################
 # Subroutines
@@ -118,7 +122,7 @@ sub validate_config($) {
 	my($config) = shift;
 
 	myprint(P_DEBUG5, "Read configuration as:\n");
-	myprint(P_DEBUG5, Dumper($config));
+	myprint(P_DEBUG5, "%s", Dumper($config));
 
 	# Connection level loop
 	foreach my $conn (sort(keys %{$config})) {
@@ -133,7 +137,29 @@ sub validate_config($) {
 			}
 		}
 
+		if(defined($config->{$conn}->{"ConnModule"}) && $config->{$conn}->{"ConnModule"} ne "") {
+			my($ok) = 0;
+			foreach my $module_list ($connmodules{$config->{$conn}->{"ConnType"}}) {
+				foreach my $module (@$module_list) {
+					if($config->{$conn}->{"ConnModule"} eq $module) {
+						$ok = 1;
+					}
+				}
+			}
+			if($ok == 0) {
+				myprint(P_ERROR, "Invalid ConnModule '" . 
+						$config->{$conn}->{"ConnModule"} . "' specifed for ConnType '" . 
+						$config->{$conn}->{"ConnType"} . "' in Connection $conn") and die;
+			}
+		}
+
 		# Set default values
+		if(!defined($config->{$conn}->{"ConnModule"}) || $config->{$conn}->{"ConnModule"} eq "") {
+			$config->{$conn}->{"ConnModule"} = $connmodules{$config->{$conn}->{"ConnType"}}->[0];
+		}
+
+		myprint(P_DEBUG, "Using ConnModule '" . $config->{$conn}->{"ConnModule"} . "'\n");
+
 		foreach my $fldval (
 			["Port", "0"],
 			["User", ""],
@@ -327,7 +353,7 @@ sub validate_config($) {
 	}
 
 	myprint(P_DEBUG5, "Cleaned configuration:\n");
-	myprint(P_DEBUG5, Dumper($config));
+	myprint(P_DEBUG5, "%s", Dumper($config));
 }
 
 # get_config()	Uses Config::General to parse a config file into a %hash
@@ -780,7 +806,7 @@ sub connect_wrap($) {
 	return $conn_prf->{ConnObj} if (defined($conn_prf->{ConnObj}));
 
 	if($conn_prf->{ConnType} eq "sftp") {
-		if(SFTP_MODULE eq 'Net::SFTP::Foreign') {
+		if($conn_prf->{ConnModule} eq 'Net::SFTP::Foreign') {
 			if($conn_prf->{AuthType} eq "Password") {
 				myprint(P_PROG, "Logging in to server '$conn_prf->{Server}:$conn_prf->{Port}' as '$conn_prf->{User}' using PASSWORD...\n");
 				if($conn_prf->{Debug} eq "1") {
@@ -788,6 +814,7 @@ sub connect_wrap($) {
 							$conn_prf->{Server},
 							user => $conn_prf->{User},
 							password => $conn_prf->{AuthData},
+							expect_log_user => 1,
 							port => $conn_prf->{Port},
 							more => [ '-v' ]
 						) or (myprint(P_ERROR, "Cannot connect to $conn_prf->{Server}: $!\n") and die);
@@ -1286,14 +1313,15 @@ sub encrypt_wrap($$) {
 sub main($) {
 	my(@argv) = @{(shift)};
 	my($prog,$path) = get_progpath();
-	my($forcerun) = 0;
+	my($test) = 0;
 
 	if($#argv < 0 || $#argv > 1 || ($#argv == 0 && $argv[0] eq "--test")) {
-		myprint(P_ERROR, "usage: $prog [--forcerun] path_to_sndrcv.ini\n") and die;
+		myprint(P_ERROR, "usage: $prog [--test] path_to_sndrcv.ini\n") and die;
 	}
 
-	if($argv[0] eq "--forcerun") {
-		$forcerun = 1;
+	if($argv[0] eq "--test") {
+		$test = 1;
+		$verbosity = 999;
 		shift @argv;
 	}
 
@@ -1304,7 +1332,9 @@ sub main($) {
 	for my $key (keys %{$config}) {
 		my($email_data) = { 'Message' => [] };
 
-		$verbosity = $config->{$key}->{Verbosity};
+		if($test == 0) {
+			$verbosity = $config->{$key}->{Verbosity};
+		}
 		if($config->{$key}->{LogFile} ne "") {
 			open(SAVEOUT, ">&STDOUT");
 			open(SAVEERR, ">&STDERR");
@@ -1320,7 +1350,7 @@ sub main($) {
 			$email_data->{Subject} = "File Transfer Notification for $key";
 		}
 
-		if($config->{$key}->{Active} eq "1" or $forcerun == 1) {
+		if($config->{$key}->{Active} eq "1" or $test == 1) {
 			if(upload_loop($config->{$key}, $date, $email_data) != 0) {
 				myprint(P_ERROR, "Error in upload loop!\n") and die;
 			}
