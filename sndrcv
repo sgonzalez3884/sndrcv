@@ -922,6 +922,7 @@ sub connect_wrap($) {
 		myprint(P_ERROR, "Unknown ConnType $conn_prf->{ConnType}!\n") and die;
 	}
 
+	myprint(P_PROG, "Logged in successfully!\n");
 	return $conn_prf->{ConnObj};
 
 }
